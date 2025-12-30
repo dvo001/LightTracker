@@ -1,0 +1,233 @@
+UWB Tracking & DMX – CODEX IMPLEMENTATION BRIEF (v1)
+===================================================
+Ziel
+----
+Implementiere das gesamte Projekt wie im Chat besprochen. Der Raspberry Pi 5 ist „Source of Truth“.
+Devices (Makerfabs MaUWB_ESP32S3, SKU MAUWBS3CA1) liefern Telemetrie (Ranges/Status) und nehmen Settings via MQTT an.
+Der Pi berechnet 3D-Positionen (WLS/LM), publiziert Position-Payloads und steuert DMX (UART TTL -> RS485).
+
+WICHTIG (Guardrails)
+--------------------
+1) Keine Funktionalität „vereinfachen“ durch Dummy-Werte. Falls Hardware/AT-Kommandos unklar sind: Implementiere Adapter/Interfaces
+   und liefere lauffähige Stubs nur dort, wo externe Abhängigkeiten fehlen, aber mit klarer TODO-Markierung und Logging.
+2) Pi ist Source of Truth: Konfiguration in SQLite, überschreibt bei Bedarf per MQTT und persistiert in SQLite.
+3) MAC-Adresse ist Primary ID.
+4) Netzwerk: Pi + Anchors + Tags im gleichen isolierten LAN; MQTT auf 1883 (MQTTS später).
+5) Tracking: 3D, Snapshot-Fusion pro Tick, Robust WLS/LM + Gating, States TRACKING/STALE/LOST, Loss behavior = freeze.
+6) DMX: Pan/Tilt 16-bit, Pan 0° = +X, Slew-Rate Limiter, Freeze bei STALE/LOST.
+7) API: REST gemäß OpenAPI v1 YAML (separat im Repo ablegen).
+
+Repository-Zielstruktur (Vorschlag)
+----------------------------------
+repo/
+  pi/
+    app/
+      __init__.py
+      main.py                 # FastAPI entry
+      config.py               # settings loader (SQLite + env overrides)
+      db/
+        migrations/
+          0001_init_schema.sql
+          0002_seed_defaults.sql
+        database.py           # sqlite connection + helpers
+        persistence.py        # Persistence API (CRUD + queries)
+      mqtt/
+        mqtt_manager.py
+        topics.py
+        payloads.py
+      core/
+        device_registry.py
+        range_cache.py
+        trilateration.py
+        tracking_engine.py
+        state_manager.py
+        calibration_manager.py
+      dmx/
+        dmx_engine.py
+        mapping.py
+        frame_builder.py
+        uart_rs485_driver.py
+      api/
+        routes_state.py
+        routes_settings.py
+        routes_devices.py
+        routes_anchors.py
+        routes_fixtures.py
+        routes_dmx.py
+        routes_calibration.py
+        routes_tracking.py
+        routes_events.py
+        websocket.py            # optional
+      tests/
+        test_trilateration.py
+        test_mapping.py
+        test_state_guards.py
+        test_api_contract.py
+    openapi.yaml              # REST spec (aus Chat)
+    requirements.txt
+    pyproject.toml (optional)
+    README.md
+  firmware/
+    platformio.ini
+    common/
+      mqtt_client.h/.cpp
+      device_identity.h/.cpp
+      json_payloads.h/.cpp
+    anchor/
+      src/main.cpp
+      include/...
+    tag/
+      src/main.cpp
+      include/...
+    README.md
+
+Implementationsumfang Pi (v1)
+-----------------------------
+A) SQLite Schema + Migration Runner
+- Tabellen: schema_migrations, devices, device_settings, settings, anchor_positions, fixture_profiles,
+  fixtures, calibration_runs, event_log, position_log (optional), range_log (optional).
+- WAL mode, foreign_keys ON.
+- Seed defaults (system.state=SETUP, rates.global, guards.*, tracking.*, dmx.* sowie fixture_profile generic_mh_16bit_v1).
+
+B) MQTT Manager
+- Broker: host/IP aus settings (primary IP + fallback basestation.local), port 1883.
+- Subscriptions:
+  - dev/+/status
+  - dev/+/ranges
+  - dev/+/cmd_ack
+- Publishes:
+  - tracking/<tag>/position
+  - dev/<mac>/cmd (QoS1) für apply_settings/apply_network/apply_calibration_params (wenn genutzt)
+- Envelope-Parsing + robuste Fehlerbehandlung + event_log ERROR bei malformed payloads.
+
+C) Device Registry
+- Upsert devices bei status messages.
+- last_seen tracking; Health Tick setzt STALE/OFFLINE nach timeouts (settings rates.global stale/lost oder separate keys).
+- API liefert Device-Liste/Status.
+
+D) Range Cache
+- Hält pro (anchor_mac, tag_mac) die letzte RangeSample.
+- snapshot(tag, max_age_ms) liefert pro Anchor maximal 1 Sample (latest) innerhalb window.
+
+E) Trilateration (WLS/LM)
+- solve_3d(anchor_positions_cm, samples, initial_pos_cm, params) -> (pos_cm|None, metrics)
+- Robustheit:
+  - d_min_cm/d_max_cm Plausibility
+  - residual gating (resid_max_m) + outlier removal (optional)
+  - max_iter, eps_step_cm
+- Output metrics: anchors_used, resid_m, iterations, outliers
+- Determinismus: Bei gleichen Inputs gleicher Output.
+
+F) Tracking Engine
+- Tick rate tracking_hz (settings rates.global).
+- Für jedes online Tag:
+  - samples = snapshot(tag, max_age_ms=stale_timeout_ms)
+  - pos = trilat.solve_3d(...)
+  - state evaluation:
+    - TRACKING wenn pos valid
+    - STALE wenn zuletzt valid < stale_timeout
+    - LOST wenn zuletzt valid < lost_timeout
+  - publish PositionPayload auf MQTT
+  - cache latest position (für DMX & API)
+  - optional position_log downsampled (5 Hz)
+
+G) DMX Engine
+- DMX Tick dmx_hz.
+- Wenn state_manager.system_state == LIVE und tag position state == TRACKING:
+  - compute pan/tilt für jedes enabled Fixture
+  - clamp + shortest path + slew limiter
+  - map to 16-bit (coarse/fine)
+  - build 512-byte frame (startcode 0x00 + 512 slots), Universe 1 v1
+- Bei STALE/LOST oder not LIVE: freeze (reuse last command per fixture / last frame).
+- UART RS485 Driver:
+  - 250000 baud, 8N2
+  - Break + MAB (best effort; implementiere per OS/termios soweit möglich, ansonsten dokumentierte fallback)
+  - optional de_gpio toggling (settings dmx.rs485_de_gpio)
+
+H) Operational State Manager
+- system.state in SQLite, default SETUP.
+- set_state(SETUP/CALIBRATION/LIVE/SAFE) nur unter Guards.
+- readiness() berechnet Gates:
+  - mqtt_ok, anchors_online>=min, anchor_positions set, tag_online, calibration_ok, dmx_ok, fixtures_enabled
+- Transitions:
+  - CALIBRATION nur aus SETUP
+  - LIVE nur wenn gates ok
+  - SAFE jederzeit
+- Event logging bei transitions.
+
+I) Calibration Manager
+- start(tag, duration_ms):
+  - check guards
+  - set_state(CALIBRATION)
+  - collect samples for window (use RangeCache; require enough anchors)
+  - compute per-anchor summary; derive params (v1 kann params_json enthalten ohne device apply falls AT unklar)
+  - persist calibration_run result OK/FAILED/ABORTED
+  - set_state(SETUP) (default)
+- invalidate calibrations wenn anchor_positions geändert werden.
+
+J) REST API (FastAPI)
+- Implementiere Endpoints gemäß OpenAPI v1:
+  - /state GET/POST
+  - /settings GET/PUT
+  - /devices GET, /devices/{mac} PUT/DELETE
+  - /devices/{mac}/settings GET/PUT
+  - /commands/pending GET
+  - /anchors GET, /anchors/{mac}/position PUT, /anchors/bulk_positions POST
+  - /fixture-profiles GET
+  - /fixtures GET/POST, /fixtures/{id} PUT/DELETE
+  - /dmx/aim POST, /dmx/stop POST
+  - /calibration/start POST, /calibration/abort POST, /calibration/runs GET, /calibration/runs/{id} GET
+  - /tracking/tags GET, /tracking/position/{tag_mac} GET
+  - /events GET
+- Validierung: DMX address bounds, min<max, MAC normalization, state constraints.
+
+K) WebSocket (optional, aber empfohlen)
+- /ws: push state/readiness, device status changes, latest positions, calibration progress.
+
+Firmware-Umfang (v1) – PlatformIO
+---------------------------------
+Ziel: Ein lauffähiges Grundgerüst, das MQTT spricht und Range-Batches liefert.
+AT-Kommandos sind firmware-versionabhängig; implementiere ein AT-Adapter-Modul mit austauschbarer Command-Map.
+
+A) Shared Library (common)
+- mqtt client (WiFi connect, reconnect, LWT optional)
+- json payload builder
+- identity (MAC, role, fw version)
+- cmd handler:
+  - subscribe dev/<mac>/cmd
+  - parse cmd envelope, apply settings (batch_period_ms etc.), ack on dev/<mac>/cmd_ack
+
+B) Anchor Firmware
+- publishes status dev/<mac>/status on boot and periodically (e.g. 5s)
+- produces ranges:
+  - AT adapter reads/parses output
+  - normalizes to RangeBatch JSON schema (meters)
+  - publishes dev/<mac>/ranges at batch_period_ms
+- If AT not available in dev env, implement simulated range generator behind a compile flag SIM_RANGES.
+
+C) Tag Firmware
+- publishes status; participates in ranging (AT adapter)
+- minimal for v1; position solving remains on Pi.
+
+Hinweise zur Implementierung in VS Code + Codex Plugin
+-----------------------------------------------------
+1) Lege diese Datei im Repo als: CODEX_IMPLEMENTATION_BRIEF.txt ab.
+2) Erstelle zusätzlich eine kurze TASK-Datei: CODEX_TASK.md mit:
+   - „Implementiere das Repo gemäß CODEX_IMPLEMENTATION_BRIEF.txt. Halte dich an OpenAPI v1 in pi/openapi.yaml und an das DB schema in pi/app/db/migrations. Liefere Tests.“
+3) Arbeite iterativ, aber commit-fähig:
+   - Phase 1: Pi DB + API skeleton + mqtt ingest
+   - Phase 2: tracking_engine + trilateration + publish position
+   - Phase 3: fixtures + dmx mapping + uart rs485 driver
+   - Phase 4: calibration_manager + wizards + invalidation
+   - Phase 5: firmware skeleton (anchor/tag) + cmd/ack
+
+Definition of Done (v1)
+-----------------------
+- `pi/app/main.py` startet (FastAPI), Migrationen laufen automatisch.
+- OpenAPI endpoints funktionieren (smoke tests).
+- Synthetic replay test: Range-Batches -> Position-Payloads entstehen.
+- DMX frame generation korrekt (512 bytes), mapping + slew limiter getestet.
+- Guards blockieren LIVE ohne prerequisites.
+- Event log schreibt transitions und Fehler.
+- Firmware Projects builden mit PlatformIO (Anchor/Tag), MQTT cmd/ack basic.
+

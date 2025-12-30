@@ -2,3 +2,7 @@ fastapi
 uvicorn
 paho-mqtt
 sqlite-utils
+
+pytest
+httpx
+pytest-asyncio
