@@ -1,0 +1,1 @@
+Implementiere das Projekt gemäß CODEX_IMPLEMENTATION_BRIEF_v1.txt

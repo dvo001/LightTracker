@@ -1,0 +1,1 @@
+# MQTT payload schemas
