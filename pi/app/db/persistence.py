@@ -105,6 +105,77 @@ class Persistence:
         finally:
             conn.close()
 
+    # Fixtures CRUD
+    def create_fixture(self, data: dict) -> int:
+        conn = connect()
+        try:
+            ts = int(time.time() * 1000)
+            cols = [
+                'name','universe','dmx_base_addr','profile_key','pos_x_cm','pos_y_cm','pos_z_cm',
+                'pan_min_deg','pan_max_deg','tilt_min_deg','tilt_max_deg','invert_pan','invert_tilt',
+                'pan_zero_deg','tilt_zero_deg','pan_offset_deg','tilt_offset_deg','slew_pan_deg_s','slew_tilt_deg_s','is_enabled','updated_at_ms'
+            ]
+            vals = [data.get(c) for c in cols[:-1]] + [ts]
+            q = f"INSERT INTO fixtures({','.join(cols)}) VALUES({','.join(['?']*len(cols))})"
+            cur = conn.execute(q, vals)
+            conn.commit()
+            return cur.lastrowid
+        finally:
+            conn.close()
+
+    def list_fixtures(self) -> list:
+        conn = connect()
+        try:
+            cur = conn.execute("SELECT * FROM fixtures")
+            cols = [c[0] for c in cur.description]
+            return [dict(zip(cols, row)) for row in cur.fetchall()]
+        finally:
+            conn.close()
+
+    def get_fixture(self, fid: int) -> dict:
+        conn = connect()
+        try:
+            cur = conn.execute("SELECT * FROM fixtures WHERE id=?", (fid,))
+            row = cur.fetchone()
+            if not row:
+                return None
+            cols = [c[0] for c in cur.description]
+            return dict(zip(cols, row))
+        finally:
+            conn.close()
+
+    def update_fixture(self, fid: int, data: dict) -> bool:
+        conn = connect()
+        try:
+            ts = int(time.time() * 1000)
+            keys = [k for k in data.keys()]
+            if not keys:
+                return False
+            set_clause = ",".join([f"{k}=?" for k in keys]) + ",updated_at_ms=?"
+            vals = [data[k] for k in keys] + [ts, fid]
+            conn.execute(f"UPDATE fixtures SET {set_clause} WHERE id=?", vals)
+            conn.commit()
+            return True
+        finally:
+            conn.close()
+
+    def delete_fixture(self, fid: int) -> bool:
+        conn = connect()
+        try:
+            cur = conn.execute("DELETE FROM fixtures WHERE id=?", (fid,))
+            conn.commit()
+            return cur.rowcount > 0
+        finally:
+            conn.close()
+
+    def list_fixture_profiles(self) -> list:
+        conn = connect()
+        try:
+            cur = conn.execute("SELECT profile_key, profile_json, updated_at_ms FROM fixture_profiles")
+            return [{"profile_key": r[0], "profile_json": r[1], "updated_at_ms": r[2]} for r in cur.fetchall()]
+        finally:
+            conn.close()
+
 
 # Offer a module-level singleton
 _persistence = Persistence()
