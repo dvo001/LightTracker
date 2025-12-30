@@ -176,6 +176,71 @@ class Persistence:
         finally:
             conn.close()
 
+    # Calibration runs CRUD
+    def create_calibration_run(self, tag_mac: str, params_json: str, started_at_ms: int) -> int:
+        conn = connect()
+        try:
+            cur = conn.execute(
+                "INSERT INTO calibration_runs(tag_mac, started_at_ms, params_json) VALUES(?,?,?)",
+                (tag_mac, started_at_ms, params_json),
+            )
+            conn.commit()
+            return cur.lastrowid
+        finally:
+            conn.close()
+
+    def finish_calibration_run(self, run_id: int, result: str, ended_at_ms: int, summary_json: str = None, invalidated_at_ms: int = None):
+        conn = connect()
+        try:
+            conn.execute(
+                "UPDATE calibration_runs SET result=?, ended_at_ms=?, summary_json=?, invalidated_at_ms=? WHERE id=?",
+                (result, ended_at_ms, summary_json, invalidated_at_ms, run_id),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    def abort_calibration_run(self, run_id: int, ended_at_ms: int):
+        conn = connect()
+        try:
+            conn.execute("UPDATE calibration_runs SET result='ABORTED', ended_at_ms=? WHERE id=?", (ended_at_ms, run_id))
+            conn.commit()
+        finally:
+            conn.close()
+
+    def list_calibration_runs(self, tag_mac: str = None) -> list:
+        conn = connect()
+        try:
+            if tag_mac:
+                cur = conn.execute("SELECT * FROM calibration_runs WHERE tag_mac=? ORDER BY started_at_ms DESC", (tag_mac,))
+            else:
+                cur = conn.execute("SELECT * FROM calibration_runs ORDER BY started_at_ms DESC")
+            cols = [c[0] for c in cur.description]
+            return [dict(zip(cols, row)) for row in cur.fetchall()]
+        finally:
+            conn.close()
+
+    def get_calibration_run(self, run_id: int) -> dict:
+        conn = connect()
+        try:
+            cur = conn.execute("SELECT * FROM calibration_runs WHERE id=?", (run_id,))
+            row = cur.fetchone()
+            if not row:
+                return None
+            cols = [c[0] for c in cur.description]
+            return dict(zip(cols, row))
+        finally:
+            conn.close()
+
+    def invalidate_calibration_runs(self, now_ms: int):
+        conn = connect()
+        try:
+            # set invalidated_at_ms for runs that are OK and not already invalidated
+            conn.execute("UPDATE calibration_runs SET invalidated_at_ms=? WHERE result='OK' AND (invalidated_at_ms IS NULL)", (now_ms,))
+            conn.commit()
+        finally:
+            conn.close()
+
 
 # Offer a module-level singleton
 _persistence = Persistence()

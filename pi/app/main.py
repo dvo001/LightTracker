@@ -8,6 +8,7 @@ from app.db.persistence import get_persistence
 from app.mqtt.mqtt_manager import MQTTManager
 from app.core.tracking_engine import TrackingEngine
 from app.api import routes_state, routes_settings, routes_devices, routes_events
+from app.api import routes_calibration, routes_anchors
 from app.api import routes_tracking
 
 logging.basicConfig(level=logging.INFO)
@@ -20,6 +21,8 @@ app.include_router(routes_settings.router, prefix="/api/v1")
 app.include_router(routes_devices.router, prefix="/api/v1")
 app.include_router(routes_events.router, prefix="/api/v1")
 app.include_router(routes_tracking.router, prefix="/api/v1")
+app.include_router(routes_calibration.router, prefix="/api/v1")
+app.include_router(routes_anchors.router, prefix="/api/v1")
 
 
 @app.on_event("startup")
