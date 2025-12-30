@@ -6,3 +6,4 @@ sqlite-utils
 pytest
 httpx
 pytest-asyncio
+numpy

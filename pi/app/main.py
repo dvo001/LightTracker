@@ -6,7 +6,9 @@ from fastapi import FastAPI
 
 from app.db.persistence import get_persistence
 from app.mqtt.mqtt_manager import MQTTManager
+from app.core.tracking_engine import TrackingEngine
 from app.api import routes_state, routes_settings, routes_devices, routes_events
+from app.api import routes_tracking
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("pi.app")
@@ -17,6 +19,7 @@ app.include_router(routes_state.router, prefix="/api/v1")
 app.include_router(routes_settings.router, prefix="/api/v1")
 app.include_router(routes_devices.router, prefix="/api/v1")
 app.include_router(routes_events.router, prefix="/api/v1")
+app.include_router(routes_tracking.router, prefix="/api/v1")
 
 
 @app.on_event("startup")
@@ -35,6 +38,10 @@ def startup_event():
     thread.start()
     # store manager for potential later use
     app.state.mqtt_manager = mqtt_mgr
+    # start tracking engine
+    tracking = TrackingEngine(persistence=persistence, mqtt_client=mqtt_mgr)
+    tracking.start()
+    app.state.tracking_engine = tracking
 
 
 @app.on_event("shutdown")

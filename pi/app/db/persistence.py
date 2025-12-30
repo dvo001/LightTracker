@@ -87,6 +87,24 @@ class Persistence:
         finally:
             conn.close()
 
+    def get_setting(self, key: str, default: str = None) -> str:
+        conn = connect()
+        try:
+            cur = conn.execute("SELECT value FROM settings WHERE key=?", (key,))
+            row = cur.fetchone()
+            return row[0] if row else default
+        finally:
+            conn.close()
+
+    def get_anchor_positions(self) -> dict:
+        conn = connect()
+        try:
+            cur = conn.execute("SELECT mac,x_cm,y_cm,z_cm FROM anchor_positions")
+            out = {r[0]: (r[1], r[2], r[3]) for r in cur.fetchall()}
+            return out
+        finally:
+            conn.close()
+
 
 # Offer a module-level singleton
 _persistence = Persistence()

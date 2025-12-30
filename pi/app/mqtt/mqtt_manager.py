@@ -8,6 +8,7 @@ import paho.mqtt.client as mqtt
 
 from app.mqtt import topics, payloads
 from app.db.persistence import Persistence
+from app.core.range_cache import get_range_cache
 
 logger = logging.getLogger("pi.mqtt")
 
@@ -42,6 +43,17 @@ class MQTTManager:
                 if t.startswith('dev/') and t.endswith('/status'):
                     role = payload.get('role') if payload else None
                     self.persistence.upsert_device(mac=mac, role=role, fw=(payload.get('fw') if payload else None), ip=(payload.get('ip') if payload else None), status=(payload.get('status') if payload else None), ts_ms=(payload.get('ts_ms') if payload and 'ts_ms' in payload else None))
+                elif t.startswith('dev/') and t.endswith('/ranges'):
+                    # pass batch to range cache
+                    rc = get_range_cache()
+                    if not payload:
+                        # malformed
+                        self.persistence.insert_event('ERROR', 'mqtt', 'ranges_malformed', mac or '', json.dumps({'topic': t, 'payload': str(msg.payload)}))
+                    else:
+                        # attach anchor mac inferred from topic if missing
+                        if 'anchor_mac' not in payload:
+                            payload['anchor_mac'] = mac
+                        rc.update_from_batch(payload)
                 else:
                     # generic log
                     self.persistence.insert_event('INFO', 'mqtt', 'message', mac or '', json.dumps({'topic': t, 'payload': payload}))
