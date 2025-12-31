@@ -1,15 +1,68 @@
 {% extends "base.html" %}
-
 {% block content %}
-<section class="card">
-  <h1>Edit Fixture {{ fixture_id }}</h1>
-  <div id="fixture-id" data-id="{{ fixture_id }}" style="display:none"></div>
-  <form id="fixture-edit-form">
-    <label>Name <span class="req">*</span><input name="name" required></label>
-    <label>Profile <span class="req">*</span><input name="profile" required></label>
-    <label>Universe <span class="req">*</span><input name="universe" required></label>
-    <label>DMX Address <span class="req">*</span><input name="dmx_address" required></label>
-    <button class="btn" type="submit">Save</button>
+<h1>Fixture bearbeiten</h1>
+
+<div class="card">
+  <div class="muted">ID: <span id="fx_id">{{ fixture_id }}</span></div>
+  <p class="muted">Felder mit <span class="req">*</span> sind zwingend.</p>
+
+  <form class="form" id="fixtureEditForm" onsubmit="ltUpdateFixture(event, '{{ fixture_id }}')">
+    <label>Name <span class="req">*</span></label>
+    <input id="fx_name" required />
+
+    <label>Profil <span class="req">*</span></label>
+    <input id="fx_profile" required />
+
+    <label>Universe <span class="req">*</span></label>
+    <input id="fx_universe" type="number" min="0" max="32767" required />
+
+    <label>DMX Address <span class="req">*</span></label>
+    <input id="fx_addr" type="number" min="1" max="512" required />
+
+    <label>X (cm)</label>
+    <input id="fx_x" type="number" />
+
+    <label>Y (cm)</label>
+    <input id="fx_y" type="number" />
+
+    <label>Z (cm)</label>
+    <input id="fx_z" type="number" />
+
+    <hr class="sep" />
+
+    <div class="muted" style="grid-column:1/-1;">Optionales Mapping</div>
+
+    <label>PAN Channel</label>
+    <input id="fx_pan_ch" type="number" min="1" max="512" />
+
+    <label>TILT Channel</label>
+    <input id="fx_tilt_ch" type="number" min="1" max="512" />
+
+    <label>DIMMER Channel</label>
+    <input id="fx_dim_ch" type="number" min="1" max="512" />
+
+    <label>Invert PAN</label>
+    <input id="fx_invert_pan" type="checkbox" />
+
+    <label>Invert TILT</label>
+    <input id="fx_invert_tilt" type="checkbox" />
+
+    <div class="row" style="grid-column: 1 / -1; margin-top: 10px;">
+      <button class="btn" type="submit">Speichern</button>
+      <a class="btn" href="/ui/fixtures">Zurück</a>
+      <button class="btn danger" type="button" onclick="ltDeleteFixture('{{ fixture_id }}')">Löschen</button>
+    </div>
   </form>
-</section>
+
+  <pre id="fx_result" class="pre"></pre>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+  ltRefreshFooterState();
+  ltLoadFixtureForEdit("{{ fixture_id }}");
+});
+</script>
 {% endblock %}

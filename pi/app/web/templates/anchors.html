@@ -1,10 +1,70 @@
 {% extends "base.html" %}
-
 {% block content %}
-<section class="card">
-  <h1>Anchors</h1>
-  <div id="anchors">
-    <p>Loading anchors...</p>
+<h1>Anchors</h1>
+
+<div class="grid2">
+  <div class="card">
+    <div class="card-title">Anchors Liste</div>
+    <div class="row">
+      <button class="btn" onclick="ltLoadAnchors()">Refresh</button>
+    </div>
+
+    <div class="tablewrap">
+      <table class="tbl">
+        <thead>
+          <tr>
+            <th>MAC</th>
+            <th>Name</th>
+            <th>Status</th>
+            <th>Last Seen</th>
+            <th>Pos (cm)</th>
+            <th>Aktionen</th>
+          </tr>
+        </thead>
+        <tbody id="anchors_tbody">
+          <tr><td colspan="6" class="muted">lade…</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <pre id="anchors_debug" class="pre muted" style="display:none;"></pre>
   </div>
-</section>
+
+  <div class="card">
+    <div class="card-title">Anchor Position setzen</div>
+    <p class="muted">Felder mit <span class="req">*</span> sind zwingend.</p>
+
+    <form class="form" onsubmit="ltSetAnchorPosition(event)">
+      <label>MAC <span class="req">*</span></label>
+      <input id="anc_mac" required placeholder="AA:BB:CC:DD:EE:FF" />
+
+      <label>Name (optional)</label>
+      <input id="anc_name" placeholder="Stage Left / FOH / …" />
+
+      <label>X (cm) <span class="req">*</span></label>
+      <input id="anc_x" type="number" required value="0" />
+
+      <label>Y (cm) <span class="req">*</span></label>
+      <input id="anc_y" type="number" required value="0" />
+
+      <label>Z (cm) <span class="req">*</span></label>
+      <input id="anc_z" type="number" required value="0" />
+
+      <div class="row" style="grid-column: 1 / -1; margin-top:10px;">
+        <button class="btn" type="submit">Speichern</button>
+        <button class="btn" type="button" onclick="ltPrefillFromSelectedAnchor()">Von Auswahl übernehmen</button>
+      </div>
+    </form>
+
+    <pre id="anchors_form_out" class="pre"></pre>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+  ltRefreshFooterState();
+  ltLoadAnchors();
+});
+</script>
 {% endblock %}

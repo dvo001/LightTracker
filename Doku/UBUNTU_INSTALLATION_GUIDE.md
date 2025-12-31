@@ -90,7 +90,7 @@ sudo nano /etc/udev/rules.d/99-dmx.rules
 SUBSYSTEM=="tty", ATTRS{idVendor}=="0403", ATTRS{idProduct}=="6001", SYMLINK+="dmx"
 ```
 
-```bash
+```bashl
 sudo udevadm control --reload-rules
 ```
 
@@ -105,7 +105,7 @@ Dann:
 
 ```bash
 cd ~
-git clone <DEIN_REPO_URL> LightTracking
+git clone https://github.com/dvo001/LightTracker LightTracking
 cd LightTracking
 ```
 

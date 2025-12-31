@@ -1,10 +1,50 @@
 {% extends "base.html" %}
-
 {% block content %}
-<section class="card">
-  <h1>Dashboard</h1>
-  <div id="dashboard">
-    <p>Loading...</p>
+<h1>Dashboard</h1>
+
+<div class="grid">
+  <div class="card">
+    <div class="card-title">System State</div>
+    <div class="kv">
+      <div class="k">State</div><div class="v" id="dash_state">…</div>
+      <div class="k">MQTT</div><div class="v" id="dash_mqtt">…</div>
+      <div class="k">Anchors Online</div><div class="v" id="dash_anchors">…</div>
+    </div>
+    <div class="row" style="margin-top:10px;">
+      <button class="btn" onclick="ltRefreshDashboard()">Refresh</button>
+      <a class="btn" href="/ui/live">Open Live Monitor</a>
+    </div>
   </div>
-</section>
+
+  <div class="card">
+    <div class="card-title">Warnings</div>
+    <ul id="dash_warnings" class="list">
+      <li class="muted">lade…</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Quick Links</div>
+    <div class="stack">
+      <a class="btn" href="/ui/anchors">Anchors</a>
+      <a class="btn" href="/ui/fixtures">Fixtures</a>
+      <a class="btn" href="/ui/calibration">Calibration</a>
+      <a class="btn" href="/ui/settings">Settings</a>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Debug</div>
+    <pre id="dash_debug" class="pre">…</pre>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+  ltRefreshFooterState();
+  ltRefreshDashboard();
+});
+</script>
 {% endblock %}

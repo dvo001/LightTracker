@@ -1,10 +1,51 @@
 {% extends "base.html" %}
-
 {% block content %}
-<section class="card">
-  <h1>Calibration Wizard</h1>
-  <div id="calibration">
-    <p>Calibration controls will appear here.</p>
+<h1>Calibration Wizard</h1>
+
+<div class="grid2">
+  <div class="card">
+    <div class="card-title">Schritt 1: Precheck</div>
+    <div class="kv">
+      <div class="k">State</div><div class="v" id="cal_state">…</div>
+      <div class="k">MQTT</div><div class="v" id="cal_mqtt">…</div>
+      <div class="k">Anchors Online</div><div class="v" id="cal_anchors">…</div>
+    </div>
+    <div class="row" style="margin-top:10px;">
+      <button class="btn" onclick="ltCalibrationPrecheck()">Precheck</button>
+    </div>
+    <ul id="cal_precheck" class="list" style="margin-top:10px;"></ul>
   </div>
-</section>
+
+  <div class="card">
+    <div class="card-title">Schritt 2–4: Running / Result</div>
+    <div class="muted">Tag auf 0-Punkt legen, dann Start.</div>
+
+    <div class="row" style="margin-top:10px;">
+      <button class="btn" onclick="ltCalibrationStart()">Start</button>
+      <button class="btn" onclick="ltCalibrationAbort()">Abort</button>
+      <button class="btn" onclick="ltCalibrationPollOnce()">Status</button>
+    </div>
+
+    <div class="kv" style="margin-top:10px;">
+      <div class="k">Status</div><div class="v" id="cal_status">…</div>
+      <div class="k">Progress</div><div class="v" id="cal_progress">…</div>
+    </div>
+
+    <div class="row" style="margin-top:10px;">
+      <button class="btn" onclick="ltCalibrationCommit()">Save/Commit</button>
+      <button class="btn" onclick="ltCalibrationDiscard()">Discard</button>
+    </div>
+
+    <pre id="cal_out" class="pre"></pre>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+  ltRefreshFooterState();
+  ltCalibrationPrecheck();
+});
+</script>
 {% endblock %}

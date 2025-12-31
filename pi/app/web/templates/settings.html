@@ -1,9 +1,50 @@
 {% extends "base.html" %}
-
 {% block content %}
-<section class="card">
-  <h1>Settings</h1>
-  <div id="settings">Loading settings...</div>
-  <button id="save-settings" class="btn">Save</button>
-</section>
+<h1>Settings</h1>
+
+<div class="grid2">
+  <div class="card">
+    <div class="card-title">Aktuelle Settings</div>
+    <div class="row">
+      <button class="btn" onclick="ltLoadSettings()">Reload</button>
+      <button class="btn" onclick="ltSaveSettings()">Save</button>
+    </div>
+
+    <form class="form" id="settingsForm" style="margin-top:10px;">
+      <label>MQTT Host</label>
+      <input id="set_mqtt_host" placeholder="localhost" />
+
+      <label>MQTT Port</label>
+      <input id="set_mqtt_port" type="number" placeholder="1883" />
+
+      <label>Tracking Rate (Hz)</label>
+      <input id="set_tracking_hz" type="number" step="0.1" placeholder="10" />
+
+      <label>DMX Rate (Hz)</label>
+      <input id="set_dmx_hz" type="number" step="0.1" placeholder="40" />
+
+      <label>Min Anchors Required</label>
+      <input id="set_min_anchors" type="number" min="3" max="8" placeholder="4" />
+    </form>
+
+    <pre id="settings_out" class="pre"></pre>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Hinweise</div>
+    <ul class="list">
+      <li>Änderungen sind in LIVE gesperrt (Safety).</li>
+      <li>Wenn eure API andere Feldnamen nutzt, passt nur das JSON Mapping in <code>app.js</code> an.</li>
+    </ul>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+  ltRefreshFooterState();
+  ltLoadSettings();
+});
+</script>
 {% endblock %}

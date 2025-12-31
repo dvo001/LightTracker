@@ -1,11 +1,42 @@
 {% extends "base.html" %}
-
 {% block content %}
-<section class="card">
-  <h1>Fixtures</h1>
-  <div id="fixtures">
-    <p>Loading fixtures...</p>
+<h1>Fixtures</h1>
+
+<div class="card">
+  <div class="row">
+    <a class="btn" href="/ui/fixtures/new">+ Fixture anlegen</a>
+    <button class="btn" onclick="ltLoadFixturesTable()">Refresh</button>
   </div>
-  <a class="btn" href="/ui/fixtures/new">New Fixture</a>
-</section>
+  <div class="muted" style="margin-top:10px;">Actions sind in LIVE gesperrt (Safety).</div>
+
+  <div class="tablewrap" style="margin-top:12px;">
+    <table class="tbl">
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Profil</th>
+          <th>Universe</th>
+          <th>Addr</th>
+          <th>Status</th>
+          <th>Pos (cm)</th>
+          <th>Aktionen</th>
+        </tr>
+      </thead>
+      <tbody id="fx_tbody">
+        <tr><td colspan="7" class="muted">lade…</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <pre id="fixtures_out" class="pre" style="display:none;"></pre>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+  ltRefreshFooterState();
+  ltLoadFixturesTable();
+});
+</script>
 {% endblock %}
