@@ -2,6 +2,7 @@ fastapi
 uvicorn
 paho-mqtt
 sqlite-utils
+jinja2
 
 pytest
 httpx

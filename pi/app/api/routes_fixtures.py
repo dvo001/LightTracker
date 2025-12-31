@@ -4,6 +4,13 @@ from typing import Optional
 
 from app.db.persistence import get_persistence
 
+
+def _assert_not_live(p):
+    # guard destructive/modify actions while system is LIVE
+    state = p.get_setting('system.state', 'SETUP')
+    if state == 'LIVE':
+        raise HTTPException(status_code=409, detail={"code": "STATE_BLOCKED", "message": "Operation not allowed while system is LIVE"})
+
 router = APIRouter()
 
 
@@ -32,6 +39,7 @@ def list_fixtures():
 @router.post("/fixtures")
 def create_fixture(body: FixtureIn):
     p = get_persistence()
+    _assert_not_live(p)
     # basic validation: ensure fits in 512 using profile channels if available
     profiles = {pr['profile_key']: pr for pr in p.list_fixture_profiles()}
     profile = profiles.get(body.profile_key)
@@ -61,6 +69,7 @@ def get_fixture(fid: int):
 @router.put("/fixtures/{fid}")
 def put_fixture(fid: int, body: dict):
     p = get_persistence()
+    _assert_not_live(p)
     ok = p.update_fixture(fid, body)
     if not ok:
         raise HTTPException(status_code=404)
@@ -70,6 +79,7 @@ def put_fixture(fid: int, body: dict):
 @router.delete("/fixtures/{fid}")
 def delete_fixture(fid: int):
     p = get_persistence()
+    _assert_not_live(p)
     ok = p.delete_fixture(fid)
     if not ok:
         raise HTTPException(status_code=404)

@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="card">
+  <h1>Edit Fixture {{ fixture_id }}</h1>
+  <div id="fixture-id" data-id="{{ fixture_id }}" style="display:none"></div>
+  <form id="fixture-edit-form">
+    <label>Name <span class="req">*</span><input name="name" required></label>
+    <label>Profile <span class="req">*</span><input name="profile" required></label>
+    <label>Universe <span class="req">*</span><input name="universe" required></label>
+    <label>DMX Address <span class="req">*</span><input name="dmx_address" required></label>
+    <button class="btn" type="submit">Save</button>
+  </form>
+</section>
+{% endblock %}
