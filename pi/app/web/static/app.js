@@ -135,3 +135,107 @@ async function ltLoadFixtures(){
   table.appendChild(tbody);
   div.innerHTML = ''; div.appendChild(table);
 }
+
+// Calibration page logic
+async function ltInitCalibration(){
+  const container = document.getElementById('calibration');
+  if(!container) return;
+  container.innerHTML = `
+    <label>Tag MAC <input id="cal-tag" placeholder="AA:BB:CC:..."/></label>
+    <label>Duration ms <input id="cal-dur" type="number" value="6000"/></label>
+    <button id="cal-start" class="btn">Start</button>
+    <button id="cal-abort" class="btn">Abort</button>
+    <div id="cal-runs">Loading runs...</div>
+  `;
+
+  document.getElementById('cal-start').addEventListener('click', async ()=>{
+    if(!(await ltAssertNotLive('Start calibration'))) return;
+    const tag = document.getElementById('cal-tag').value;
+    const dur = parseInt(document.getElementById('cal-dur').value||6000);
+    const r = await ltFetchJson('/api/v1/calibration/start', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ tag_mac: tag, duration_ms: dur }) });
+    if(r.ok) { alert('Calibration started'); ltLoadCalRuns(); } else { alert('Start failed: ' + (r.json? JSON.stringify(r.json): r.status)); }
+  });
+  document.getElementById('cal-abort').addEventListener('click', async ()=>{
+    const r = await ltFetchJson('/api/v1/calibration/abort', { method: 'POST' });
+    if(r.ok) { alert('Aborted'); ltLoadCalRuns(); } else { alert('Abort failed'); }
+  });
+  await ltLoadCalRuns();
+}
+
+async function ltLoadCalRuns(){
+  const el = document.getElementById('cal-runs');
+  if(!el) return;
+  const r = await ltFetchJson('/api/v1/calibration/runs');
+  if(!r.ok || !r.json){ el.innerText = 'Could not load runs'; return; }
+  const runs = r.json.runs||[];
+  el.innerHTML = '<ul>' + runs.map(rr=>`<li>${rr.id} tag:${rr.tag_mac} result:${rr.result||'N/A'}</li>`).join('') + '</ul>';
+}
+
+// Live monitor logic
+let lt_live_interval = null;
+async function ltInitLive(){
+  const container = document.getElementById('live');
+  if(!container) return;
+  container.innerHTML = `
+    <div id="live-tags">Loading tags...</div>
+    <div id="live-pos"></div>
+  `;
+  // poll tags
+  async function poll(){
+    const r = await ltFetchJson('/api/v1/tracking/tags');
+    const tagsEl = document.getElementById('live-tags');
+    if(!r.ok || !r.json){ tagsEl.innerText = 'No tracking data'; return; }
+    const tags = r.json.tags || [];
+    tagsEl.innerHTML = tags.map(t=>`<button class="btn live-tag" data-mac="${t.tag_mac}">${t.tag_mac}</button>`).join(' ');
+    Array.from(document.getElementsByClassName('live-tag')).forEach(b=>b.addEventListener('click', ()=>{ ltSelectLiveTag(b.dataset.mac); }));
+  }
+  await poll();
+  if(lt_live_interval) clearInterval(lt_live_interval);
+  lt_live_interval = setInterval(poll, 1000);
+}
+
+async function ltSelectLiveTag(mac){
+  const posEl = document.getElementById('live-pos');
+  posEl.innerText = 'Loading...';
+  const r = await ltFetchJson('/api/v1/tracking/position/' + mac);
+  if(!r.ok || !r.json){ posEl.innerText = 'No position'; return; }
+  posEl.innerText = JSON.stringify(r.json);
+}
+
+// Logs
+async function ltInitLogs(){
+  const el = document.getElementById('logs');
+  if(!el) return;
+  const r = await ltFetchJson('/api/v1/events?limit=200');
+  if(!r.ok || !r.json){ el.innerText = 'Could not load events'; return; }
+  const rows = r.json.events || [];
+  el.innerHTML = '<table class="events"><tr><th>ts</th><th>lvl</th><th>src</th><th>type</th><th>ref</th><th>details</th></tr>' + rows.map(ev=>`<tr><td>${ev.ts_ms}</td><td>${ev.level}</td><td>${ev.source}</td><td>${ev.event_type}</td><td>${ev.ref}</td><td>${ev.details_json||''}</td></tr>`).join('') + '</table>';
+}
+
+// Settings
+async function ltInitSettings(){
+  const el = document.getElementById('settings');
+  if(!el) return;
+  const r = await ltFetchJson('/api/v1/settings');
+  if(!r.ok || !r.json){ el.innerText = 'Could not load settings'; return; }
+  const items = r.json.settings||[];
+  el.innerHTML = '<div id="settings-list">' + items.map(s=>`<div><label>${s.key}: <input data-key="${s.key}" value="${s.value}"/></label></div>`).join('') + '</div>';
+  document.getElementById('save-settings').addEventListener('click', async ()=>{
+    if(!(await ltAssertNotLive('Save settings'))) return;
+    const inputs = Array.from(document.querySelectorAll('#settings-list input'));
+    for(const inp of inputs){
+      const key = inp.dataset.key; const val = inp.value;
+      const r2 = await ltFetchJson('/api/v1/settings', { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ key: key, value: val }) });
+      if(!r2.ok){ alert('Failed to save '+key); return; }
+    }
+    alert('Settings saved');
+  });
+}
+
+// init remaining pages
+document.addEventListener('DOMContentLoaded', ()=>{
+  ltInitCalibration();
+  ltInitLive();
+  ltInitLogs();
+  ltInitSettings();
+});
