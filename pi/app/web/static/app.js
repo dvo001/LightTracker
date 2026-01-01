@@ -290,6 +290,62 @@ async function ltCalibrationPrecheck(){
   if ($("cal_anchors")) $("cal_anchors").textContent = String(r.json.anchors_online ?? "unknown");
 }
 
+async function ltUpdateCalibrationStatus(){
+  const out = $("cal_out");
+  const r = await ltFetchJson(LT_API.calibrationStatus || '/api/v1/calibration/status');
+  if (!r.ok || !r.json){
+    if (out) out.textContent = JSON.stringify(r.json ?? r, null, 2);
+    return;
+  }
+
+  const s = r.json;
+  if ($("cal_state")) $("cal_state").textContent = s.running ? 'RUNNING' : 'IDLE';
+  if (out) out.textContent = JSON.stringify(s, null, 2);
+
+  // show commit/discard when finished run present
+  if (s.running && s.run_id){
+    $("cal_commit_btn").style.display = 'none';
+    $("cal_discard_btn").style.display = 'none';
+  } else if (!s.running && s.run_id){
+    // completed run available
+    $("cal_commit_btn").style.display = '';
+    $("cal_discard_btn").style.display = '';
+  } else {
+    $("cal_commit_btn").style.display = 'none';
+    $("cal_discard_btn").style.display = 'none';
+  }
+}
+
+async function ltCalibrationCommit(){
+  const id = ($("cal_run_id").value || "").trim();
+  if (!id) return alert('run_id fehlt');
+  const r = await ltFetchJson(`/api/v1/calibration/commit/${encodeURIComponent(id)}`, { method: 'POST' });
+  alert(JSON.stringify(r.json ?? r));
+  ltUpdateCalibrationStatus();
+}
+
+async function ltCalibrationDiscard(){
+  const id = ($("cal_run_id").value || "").trim();
+  if (!id) return alert('run_id fehlt');
+  const r = await ltFetchJson(`/api/v1/calibration/discard/${encodeURIComponent(id)}`, { method: 'POST' });
+  alert(JSON.stringify(r.json ?? r));
+  ltUpdateCalibrationStatus();
+}
+
+// Attach UI handlers when the DOM is ready
+document.addEventListener('DOMContentLoaded', () => {
+  const commitBtn = document.getElementById('cal_commit_btn');
+  const discardBtn = document.getElementById('cal_discard_btn');
+  const runIdInput = document.getElementById('cal_run_id');
+
+  if (commitBtn) commitBtn.addEventListener('click', (ev) => { ev.preventDefault(); ltCalibrationCommit(); });
+  if (discardBtn) discardBtn.addEventListener('click', (ev) => { ev.preventDefault(); ltCalibrationDiscard(); });
+
+  // start periodic status polling
+  ltUpdateCalibrationStatus();
+  setInterval(ltUpdateCalibrationStatus, 3000);
+});
+
 async function ltCalibrationStart(){
   if (!await ltAssertNotLive("Start Calibration")) return;
 

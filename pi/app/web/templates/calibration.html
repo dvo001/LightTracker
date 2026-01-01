@@ -23,6 +23,8 @@
       <button class="btn primary" onclick="ltCalibrationStart()">Start</button>
       <button class="btn" onclick="ltCalibrationAbort()">Abort</button>
       <button class="btn" onclick="ltCalibrationPrecheck()">Refresh State</button>
+      <button class="btn" id="cal_commit_btn" onclick="ltCalibrationCommit()" style="display:none">Commit</button>
+      <button class="btn danger" id="cal_discard_btn" onclick="ltCalibrationDiscard()" style="display:none">Discard</button>
     </div>
 
     <div class="kv" style="margin-top:12px;">
@@ -62,6 +64,8 @@
 document.addEventListener("DOMContentLoaded", () => {
   ltRefreshFooterState();
   ltCalibrationPrecheck();
+  // start polling calibration status
+  setInterval(() => ltUpdateCalibrationStatus(), 1000);
 });
 </script>
 {% endblock %}
