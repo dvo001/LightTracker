@@ -1,42 +1,58 @@
 {% extends "base.html" %}
 {% block content %}
-<h1>Calibration Wizard</h1>
+<h1>Calibration</h1>
 
 <div class="grid2">
   <div class="card">
-    <div class="card-title">Schritt 1: Precheck</div>
-    <div class="kv">
+    <div class="card-title">Start</div>
+    <div class="muted">
+      Start nutzt <code>POST /api/v1/calibration/start</code> mit <code>tag_mac</code>.
+      Optional: <code>duration_ms</code>.
+    </div>
+
+    <div class="formgrid" style="margin-top:10px;">
+      <label>tag_mac <span class="req">*</span>
+        <input id="cal_tag_mac" placeholder="AA:BB:CC:DD:EE:FF" required />
+      </label>
+      <label>duration_ms
+        <input id="cal_duration" type="number" value="6000" min="1000" />
+      </label>
+    </div>
+
+    <div class="row">
+      <button class="btn primary" onclick="ltCalibrationStart()">Start</button>
+      <button class="btn" onclick="ltCalibrationAbort()">Abort</button>
+      <button class="btn" onclick="ltCalibrationPrecheck()">Refresh State</button>
+    </div>
+
+    <div class="kv" style="margin-top:12px;">
       <div class="k">State</div><div class="v" id="cal_state">…</div>
       <div class="k">MQTT</div><div class="v" id="cal_mqtt">…</div>
       <div class="k">Anchors Online</div><div class="v" id="cal_anchors">…</div>
     </div>
-    <div class="row" style="margin-top:10px;">
-      <button class="btn" onclick="ltCalibrationPrecheck()">Precheck</button>
-    </div>
-    <ul id="cal_precheck" class="list" style="margin-top:10px;"></ul>
+
+    <pre class="pre" id="cal_out"></pre>
   </div>
 
   <div class="card">
-    <div class="card-title">Schritt 2–4: Running / Result</div>
-    <div class="muted">Tag auf 0-Punkt legen, dann Start.</div>
+    <div class="card-title">Runs</div>
+    <div class="muted">GET <code>/api/v1/calibration/runs?tag_mac=…</code> und <code>/runs/{run_id}</code>.</div>
 
     <div class="row" style="margin-top:10px;">
-      <button class="btn" onclick="ltCalibrationStart()">Start</button>
-      <button class="btn" onclick="ltCalibrationAbort()">Abort</button>
-      <button class="btn" onclick="ltCalibrationPollOnce()">Status</button>
+      <button class="btn" onclick="ltCalibrationLoadRuns()">Load Runs</button>
+      <button class="btn" onclick="ltCalibrationLoadSelectedRun()">Load Selected Run</button>
     </div>
 
-    <div class="kv" style="margin-top:10px;">
-      <div class="k">Status</div><div class="v" id="cal_status">…</div>
-      <div class="k">Progress</div><div class="v" id="cal_progress">…</div>
+    <div class="formgrid" style="margin-top:10px;">
+      <label>tag_mac filter
+        <input id="cal_runs_tag_mac" placeholder="leer = alle" />
+      </label>
+      <label>run_id
+        <input id="cal_run_id" placeholder="z.B. 123" />
+      </label>
     </div>
 
-    <div class="row" style="margin-top:10px;">
-      <button class="btn" onclick="ltCalibrationCommit()">Save/Commit</button>
-      <button class="btn" onclick="ltCalibrationDiscard()">Discard</button>
-    </div>
-
-    <pre id="cal_out" class="pre"></pre>
+    <pre class="pre" id="cal_runs_out"></pre>
   </div>
 </div>
 {% endblock %}

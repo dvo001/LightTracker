@@ -1,112 +1,113 @@
-import threading
-import time
-import logging
-
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, WebSocket
+from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from pathlib import Path
+import os
+import threading
+import asyncio
+import json
 
-from app.db.persistence import get_persistence
-from app.mqtt.mqtt_manager import MQTTManager
-from app.core.tracking_engine import TrackingEngine
-from app.api import routes_state, routes_settings, routes_devices, routes_events
-from app.api import routes_calibration, routes_anchors
-from app.api import routes_tracking
+from .db.migrations.runner import run_migrations
+from .api import router as api_router
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("pi.app")
+app = FastAPI()
 
-app = FastAPI(title="LightTracker PI API")
-
-app.include_router(routes_state.router, prefix="/api/v1")
-app.include_router(routes_settings.router, prefix="/api/v1")
-app.include_router(routes_devices.router, prefix="/api/v1")
-app.include_router(routes_events.router, prefix="/api/v1")
-app.include_router(routes_tracking.router, prefix="/api/v1")
-app.include_router(routes_calibration.router, prefix="/api/v1")
-app.include_router(routes_anchors.router, prefix="/api/v1")
-
-# --- Web UI integration (Jinja2 + static files)
-BASE_DIR = Path(__file__).resolve().parent
-templates = Jinja2Templates(directory=str(BASE_DIR / "web" / "templates"))
-
-static_dir = str(BASE_DIR / "web" / "static")
-app.mount("/static", StaticFiles(directory=static_dir), name="static")
+BASE_DIR = os.path.dirname(__file__)
+templates = Jinja2Templates(directory=os.path.join(BASE_DIR, 'web', 'templates'))
+app.mount('/static', StaticFiles(directory=os.path.join(BASE_DIR, 'web', 'static')), name='static')
 
 
-# UI routes
-@app.get("/ui")
-def ui_index(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request})
+@app.on_event('startup')
+def startup():
+    # Run migrations in a separate thread to avoid blocking startup in dev
+    def _run():
+        try:
+            run_migrations()
+        except Exception:
+            pass
+    t = threading.Thread(target=_run)
+    t.daemon = True
+    t.start()
 
+    # initialize state for websocket clients and calibration
+    app.state.ws_clients = set()
+    app.state.active_calibration = None
 
-@app.get("/ui/anchors")
-def ui_anchors(request: Request):
-    return templates.TemplateResponse("anchors.html", {"request": request})
-
-
-@app.get("/ui/fixtures")
-def ui_fixtures(request: Request):
-    return templates.TemplateResponse("fixtures.html", {"request": request})
-
-
-@app.get("/ui/fixtures/new")
-def ui_fixture_new(request: Request):
-    return templates.TemplateResponse("fixture_new.html", {"request": request})
-
-
-@app.get("/ui/fixtures/{fixture_id}/edit")
-def ui_fixture_edit(request: Request, fixture_id: int):
-    return templates.TemplateResponse("fixture_edit.html", {"request": request, "fixture_id": fixture_id})
-
-
-@app.get("/ui/calibration")
-def ui_calibration(request: Request):
-    return templates.TemplateResponse("calibration.html", {"request": request})
-
-
-@app.get("/ui/live")
-def ui_live(request: Request):
-    return templates.TemplateResponse("live.html", {"request": request})
-
-
-@app.get("/ui/logs")
-def ui_logs(request: Request):
-    return templates.TemplateResponse("logs.html", {"request": request})
-
-
-@app.get("/ui/settings")
-def ui_settings(request: Request):
-    return templates.TemplateResponse("settings.html", {"request": request})
-
-
-@app.on_event("startup")
-def startup_event():
-    logger.info("Starting app: running migrations and starting MQTT")
-    persistence = get_persistence()
+    # start broadcaster task
+    loop = asyncio.get_event_loop()
     try:
-        persistence.migrate()
-    except Exception:
-        logger.exception("Migration failed")
-        raise
-
-    # start MQTT manager
-    mqtt_mgr = MQTTManager(persistence=persistence)
-    thread = threading.Thread(target=mqtt_mgr.run, daemon=True, name="mqtt-manager")
-    thread.start()
-    # store manager for potential later use
-    app.state.mqtt_manager = mqtt_mgr
-    # start tracking engine
-    tracking = TrackingEngine(persistence=persistence, mqtt_client=mqtt_mgr)
-    tracking.start()
-    app.state.tracking_engine = tracking
+        loop.create_task(_broadcaster())
+    except RuntimeError:
+        # if no running loop (uvicorn will provide one), ignore
+        pass
 
 
-@app.on_event("shutdown")
-def shutdown_event():
-    logger.info("Shutting down app")
-    mqtt_mgr = getattr(app.state, "mqtt_manager", None)
-    if mqtt_mgr:
-        mqtt_mgr.stop()
-# FastAPI entrypoint
+async def _broadcaster():
+    # periodically read anchor_positions and broadcast to connected websockets
+    while True:
+        await asyncio.sleep(0.2)
+        try:
+            from .db import connect_db
+            db = connect_db()
+            try:
+                rows = db.execute('SELECT mac,x_cm,y_cm,z_cm,updated_at_ms FROM anchor_positions').fetchall()
+            except Exception:
+                rows = []
+            finally:
+                db.close()
+
+            events = []
+            ts = int(asyncio.get_event_loop().time() * 1000)
+            for r in rows:
+                events.append({'type': 'anchor_pos', 'mac': r['mac'], 'position_cm': {'x': r['x_cm'], 'y': r['y_cm'], 'z': r['z_cm']}, 'ts_ms': r['updated_at_ms'] or ts})
+
+            if not events:
+                continue
+
+            # broadcast
+            to_remove = []
+            for ws in list(app.state.ws_clients):
+                try:
+                    await ws.send_text(json.dumps({'type': 'bulk', 'events': events}))
+                except Exception:
+                    to_remove.append(ws)
+            for ws in to_remove:
+                app.state.ws_clients.discard(ws)
+        except Exception:
+            await asyncio.sleep(1)
+
+
+@app.websocket('/ws/live')
+async def ws_live(websocket: WebSocket):
+    await websocket.accept()
+    app.state.ws_clients.add(websocket)
+    try:
+        # simple keep-alive loop
+        while True:
+            try:
+                await asyncio.wait_for(websocket.receive_text(), timeout=30.0)
+            except asyncio.TimeoutError:
+                # send ping
+                try:
+                    await websocket.send_text(json.dumps({'type': 'ping'}))
+                except Exception:
+                    break
+    finally:
+        app.state.ws_clients.discard(websocket)
+
+
+app.include_router(api_router)
+
+
+@app.get('/', response_class=HTMLResponse)
+def ui_index(request: Request):
+    return templates.TemplateResponse('index.html', {'request': request})
+
+
+@app.get('/ui/{page}', response_class=HTMLResponse)
+def ui_page(page: str, request: Request):
+    # safe mapping for a handful of pages
+    allowed = ['anchors','fixtures','live','calibration','settings','logs','index']
+    if page not in allowed:
+        return templates.TemplateResponse('index.html', {'request': request})
+    return templates.TemplateResponse(f"{page}.html", {'request': request})

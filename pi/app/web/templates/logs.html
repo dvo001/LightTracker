@@ -1,39 +1,23 @@
 {% extends "base.html" %}
 {% block content %}
-<h1>Logs / Events</h1>
+<h1>Logs</h1>
+
+<div class="row" style="margin-bottom: 10px;">
+  <button class="btn" onclick="ltLoadEvents()">Reload</button>
+</div>
 
 <div class="card">
-  <div class="row">
-    <button class="btn" onclick="ltLoadEvents()">Refresh</button>
-    <label class="muted" style="margin-left:10px;">Level</label>
-    <select id="log_level" onchange="ltLoadEvents()">
-      <option value="">ALL</option>
-      <option value="ERROR">ERROR</option>
-      <option value="WARN">WARN</option>
-      <option value="INFO">INFO</option>
-      <option value="DEBUG">DEBUG</option>
-    </select>
-    <label class="muted" style="margin-left:10px;">Search</label>
-    <input id="log_q" placeholder="text…" onkeydown="if(event.key==='Enter'){ltLoadEvents()}" />
-  </div>
-
-  <div class="tablewrap" style="margin-top:12px;">
-    <table class="tbl">
+  <div class="card-title">Event Log</div>
+  <div class="tablewrap">
+    <table class="tbl" style="min-width: 980px;">
       <thead>
-        <tr>
-          <th>Time</th>
-          <th>Level</th>
-          <th>Category</th>
-          <th>Message</th>
-        </tr>
+        <tr><th>ts_ms</th><th>level</th><th>source</th><th>event</th></tr>
       </thead>
       <tbody id="log_tbody">
         <tr><td colspan="4" class="muted">lade…</td></tr>
       </tbody>
     </table>
   </div>
-
-  <pre id="log_out" class="pre" style="display:none;"></pre>
 </div>
 {% endblock %}
 

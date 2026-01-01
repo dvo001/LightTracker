@@ -1,16 +1,23 @@
-// LightTracking UI - vanilla JS (no build chain)
+// LightTracking UI - vanilla JS, aligned to current Phase-1 API
 const LT_API = {
   state: "/api/v1/state",
+
+  anchorsUpsertPos: "/api/v1/anchors/position",
   anchors: "/api/v1/anchors",
-  anchorPos: "/api/v1/anchors/position",          // fallback; may differ
+  anchorByMac: (mac) => `/api/v1/anchors/${encodeURIComponent(mac)}`,
+
+  fixtureProfiles: "/api/v1/fixture-profiles",
   fixtures: "/api/v1/fixtures",
+  fixtureById: (id) => `/api/v1/fixtures/${id}`,
+
   calibrationStart: "/api/v1/calibration/start",
   calibrationAbort: "/api/v1/calibration/abort",
-  calibrationStatus: "/api/v1/calibration/status",
-  calibrationCommit: "/api/v1/calibration/commit",
-  calibrationDiscard: "/api/v1/calibration/discard",
-  tracking: "/api/v1/tracking",
-  trackingPosition: "/api/v1/tracking/position",
+  calibrationRuns: "/api/v1/calibration/runs",
+  calibrationRunById: (id) => `/api/v1/calibration/runs/${id}`,
+
+  trackingTags: "/api/v1/tracking/tags",
+  trackingPos: (tagMac) => `/api/v1/tracking/position/${encodeURIComponent(tagMac)}`,
+
   events: "/api/v1/events",
   settings: "/api/v1/settings",
 };
@@ -19,9 +26,7 @@ function $(id){ return document.getElementById(id); }
 
 async function ltFetchJson(url, opts){
   const o = Object.assign({ headers: {} }, opts || {});
-  if (!o.headers["Content-Type"] && o.method && o.method !== "GET") {
-    o.headers["Content-Type"] = "application/json";
-  }
+  if (!o.headers["Content-Type"] && o.method && o.method !== "GET") o.headers["Content-Type"] = "application/json";
   try{
     const r = await fetch(url, o);
     let j = null;
@@ -75,18 +80,17 @@ async function ltRefreshDashboard(){
     return;
   }
 
-  const st = r.json.system_state ?? r.json.state ?? "UNKNOWN";
-  const mqtt_ok = (r.json.mqtt_ok !== undefined) ? r.json.mqtt_ok : (r.json.mqtt?.ok ?? null);
-  const anchors = r.json.anchors_online ?? r.json.anchors?.online ?? null;
+  const st = r.json.system_state ?? "UNKNOWN";
+  const mqtt_ok = (r.json.mqtt_ok !== undefined) ? r.json.mqtt_ok : null;
+  const anchors = (r.json.anchors_online !== undefined) ? r.json.anchors_online : null;
 
   if ($("dash_state")) $("dash_state").textContent = st;
   if ($("dash_mqtt")) $("dash_mqtt").textContent = (mqtt_ok === null ? "unknown" : (mqtt_ok ? "OK" : "DOWN"));
   if ($("dash_anchors")) $("dash_anchors").textContent = (anchors === null ? "unknown" : String(anchors));
 
   const w = [];
-  if (mqtt_ok === false) w.push("MQTT nicht verbunden");
-  if (typeof anchors === "number" && anchors < 4) w.push("Weniger als 4 Anchors online");
-  if (st === "LIVE" && mqtt_ok === false) w.push("LIVE, aber MQTT down (kritisch)");
+  if (mqtt_ok === false) w.push("MQTT nicht verbunden (oder mqtt_ok wird in Phase-1 noch nicht korrekt berechnet).");
+  if (typeof anchors === "number" && anchors < 4) w.push("Weniger als 4 Anchors online (Gate für Calibration).");
 
   if (warnings){
     warnings.innerHTML = (w.length ? w : ["keine"]).map(x => `<li>${escapeHtml(x)}</li>`).join("");
@@ -94,123 +98,57 @@ async function ltRefreshDashboard(){
 }
 
 // ---------------- Anchors ----------------
-let ltSelectedAnchor = null;
-
-function ltAnchorId(a){
-  return a.mac || a.id || a.anchor_id || a.uuid || "";
-}
-
-function ltBadge(enabled){
-  if (enabled === false) return `<span class="badge off">DISABLED</span>`;
-  return `<span class="badge on">ENABLED</span>`;
-}
-
-async function ltLoadAnchors(){
-  const body = $("anchors_tbody");
-  if (!body) return;
-  body.innerHTML = `<tr><td colspan="6" class="muted">lade…</td></tr>`;
-
-  const r = await ltFetchJson(LT_API.anchors);
-  if (!r.ok){
-    body.innerHTML = `<tr><td colspan="6">Fehler: ${escapeHtml(JSON.stringify(r.json))}</td></tr>`;
-    return;
-  }
-
-  const list = Array.isArray(r.json) ? r.json : (r.json.items || r.json.anchors || []);
-  if (!list.length){
-    body.innerHTML = `<tr><td colspan="6" class="muted">Keine Anchors.</td></tr>`;
-    return;
-  }
-
-  body.innerHTML = list.map(a => {
-    const mac = ltAnchorId(a);
-    const name = a.name ?? a.label ?? "";
-    const online = (a.online !== undefined) ? a.online : (a.is_online ?? null);
-    const last = a.last_seen ?? a.lastSeen ?? a.last_seen_ts ?? "";
-    const pos = a.position_cm ?? a.position ?? {};
-    const p = `${pos.x ?? ""}, ${pos.y ?? ""}, ${pos.z ?? ""}`;
-    const enabled = (a.enabled === false) ? false : true;
-
-    const status = online === null ? "unknown" : (online ? "online" : "offline");
-
-    return `
-      <tr>
-        <td><button class="btn" onclick='ltSelectAnchor(${JSON.stringify(a)})'>${escapeHtml(mac)}</button></td>
-        <td>${escapeHtml(name)}</td>
-        <td>${ltBadge(enabled)} <span class="muted">${escapeHtml(status)}</span></td>
-        <td>${escapeHtml(String(last))}</td>
-        <td>${escapeHtml(p)}</td>
-        <td class="row">
-          <button class="btn" onclick="ltPrefillAnchor('${escapeHtml(mac)}','${escapeHtml(name)}',${pos.x ?? 0},${pos.y ?? 0},${pos.z ?? 0})">Prefill</button>
-        </td>
-      </tr>
-    `;
-  }).join("");
-}
-
-function ltSelectAnchor(a){
-  ltSelectedAnchor = a;
-  alert("Anchor selected: " + (a.mac || a.id || "unknown"));
-}
-
-function ltPrefillAnchor(mac, name, x, y, z){
-  $("anc_mac").value = mac;
-  $("anc_name").value = name || "";
-  $("anc_x").value = x ?? 0;
-  $("anc_y").value = y ?? 0;
-  $("anc_z").value = z ?? 0;
-}
-
-function ltPrefillFromSelectedAnchor(){
-  if (!ltSelectedAnchor) {
-    alert("Kein Anchor ausgewählt.");
-    return;
-  }
-  const a = ltSelectedAnchor;
-  const pos = a.position_cm ?? a.position ?? {};
-  ltPrefillAnchor(a.mac || a.id || "", a.name || a.label || "", pos.x ?? 0, pos.y ?? 0, pos.z ?? 0);
-}
-
 async function ltSetAnchorPosition(ev){
   ev.preventDefault();
   if (!await ltAssertNotLive("Set Anchor Position")) return;
 
   const mac = $("anc_mac").value.trim();
-  const name = $("anc_name").value.trim();
-  const x = Number($("anc_x").value);
-  const y = Number($("anc_y").value);
-  const z = Number($("anc_z").value);
+  const x_cm = Number($("anc_x").value);
+  const y_cm = Number($("anc_y").value);
+  const z_cm = Number($("anc_z").value);
 
-  const payloadCandidates = [
-    { mac, name, position_cm: { x, y, z } },
-    { mac, name, x_cm: x, y_cm: y, z_cm: z },
-    { mac, name, position: { x, y, z } },
-  ];
+  const payload = { mac, x_cm: Math.trunc(x_cm), y_cm: Math.trunc(y_cm), z_cm: Math.trunc(z_cm) };
 
-  // try common endpoints/payloads - if your API differs, adjust LT_API.anchorPos + payload
   const out = $("anchors_form_out");
   out.textContent = "saving…";
-
-  // First try PUT /api/v1/anchors/{mac}/position if supported
-  let r = await ltFetchJson(`${LT_API.anchors}/${encodeURIComponent(mac)}/position`, { method: "PUT", body: JSON.stringify(payloadCandidates[0]) });
-  if (!r.ok) {
-    // fallback: POST /api/v1/anchors/position
-    r = await ltFetchJson(LT_API.anchorPos, { method: "POST", body: JSON.stringify(payloadCandidates[0]) });
-  }
-  if (!r.ok) {
-    // last fallback: PUT /api/v1/anchors/{mac}
-    r = await ltFetchJson(`${LT_API.anchors}/${encodeURIComponent(mac)}`, { method: "PUT", body: JSON.stringify(payloadCandidates[0]) });
-  }
-
+  const r = await ltFetchJson(LT_API.anchorsUpsertPos, { method: "POST", body: JSON.stringify(payload) });
   out.textContent = JSON.stringify(r.json ?? r, null, 2);
-  if (r.ok) ltLoadAnchors();
+}
+
+// ---------------- Anchors List ----------------
+async function ltLoadAnchors(){
+  const body = $("anchors_tbody");
+  if (!body) return;
+  body.innerHTML = `<tr><td colspan="6" class="muted">lade…</td></tr>`;
+  const r = await ltFetchJson(LT_API.anchors);
+  if (!r.ok || !r.json){
+    body.innerHTML = `<tr><td colspan="6">Fehler: ${escapeHtml(JSON.stringify(r.json))}</td></tr>`;
+    return;
+  }
+  const list = r.json?.anchors || [];
+  if (!list.length){
+    body.innerHTML = `<tr><td colspan="6" class="muted">Keine Anchors.</td></tr>`;
+    return;
+  }
+  body.innerHTML = list.map(a => {
+    const mac = a.mac || '';
+    const alias = a.alias || '';
+    const last = a.last_seen_at_ms || '';
+    const pos = a.position_cm || {};
+    return `
+      <tr>
+        <td>${escapeHtml(mac)}</td>
+        <td>${escapeHtml(alias)}</td>
+        <td>${escapeHtml(String(last))}</td>
+        <td>${escapeHtml(String(pos.x ?? '?'))}</td>
+        <td>${escapeHtml(String(pos.y ?? '?'))}</td>
+        <td>${escapeHtml(String(pos.z ?? '?'))}</td>
+      </tr>
+    `;
+  }).join('');
 }
 
 // ---------------- Fixtures ----------------
-function ltFixtureId(fx){
-  return fx.id || fx.fixture_id || fx.uuid || fx.name;
-}
-
 async function ltLoadFixturesTable(){
   const body = $("fx_tbody");
   if (!body) return;
@@ -222,68 +160,63 @@ async function ltLoadFixturesTable(){
     return;
   }
 
-  const list = Array.isArray(r.json) ? r.json : (r.json.items || r.json.fixtures || []);
+  const list = r.json?.fixtures || [];
   if (!list.length){
     body.innerHTML = `<tr><td colspan="7" class="muted">Keine Fixtures.</td></tr>`;
     return;
   }
 
   body.innerHTML = list.map(fx => {
-    const id = ltFixtureId(fx);
+    const id = fx.id;
     const name = fx.name ?? "";
-    const profile = fx.profile ?? fx.profile_name ?? "";
-    const dmx = fx.dmx ?? {};
-    const uni = dmx.universe ?? fx.universe ?? "";
-    const addr = dmx.address ?? fx.address ?? fx.dmx_address ?? "";
-    const pos = fx.position_cm ?? fx.position ?? {};
-    const p = `${pos.x ?? ""}, ${pos.y ?? ""}, ${pos.z ?? ""}`;
-    const enabled = (fx.enabled === false) ? false : true;
-
-    const toggleBtn = enabled
-      ? `<button class="btn" onclick="ltDisableFixture('${encodeURIComponent(id)}')">Disable</button>`
-      : `<button class="btn" onclick="ltEnableFixture('${encodeURIComponent(id)}')">Enable</button>`;
+    const profile = fx.profile_key ?? "";
+    const uni = fx.universe ?? "";
+    const addr = fx.dmx_base_addr ?? "";
+    const p = `${fx.pos_x_cm ?? 0}, ${fx.pos_y_cm ?? 0}, ${fx.pos_z_cm ?? 0}`;
+    const enabled = (fx.enabled === 0 || fx.enabled === false) ? false : true;
 
     return `
       <tr>
+        <td>${escapeHtml(String(id))}</td>
+        <td>${enabled ? '✔' : '✖'}</td>
         <td>${escapeHtml(name)}</td>
         <td>${escapeHtml(profile)}</td>
         <td>${escapeHtml(String(uni))}</td>
         <td>${escapeHtml(String(addr))}</td>
-        <td>${ltBadge(enabled)}</td>
         <td>${escapeHtml(p)}</td>
         <td class="row">
-          <a class="btn" href="/ui/fixtures/${encodeURIComponent(id)}/edit">Edit</a>
-          ${toggleBtn}
-          <button class="btn danger" onclick="ltDeleteFixture('${encodeURIComponent(id)}')">Delete</button>
+          <a class="btn" href="/ui/fixtures/${id}/edit">Edit</a>
+          <button class="btn danger" onclick="ltDeleteFixture(${id})">Delete</button>
+          ${enabled ? `<button class="btn" onclick="ltDisableFixture(${id})">Disable</button>` : `<button class="btn" onclick="ltEnableFixture(${id})">Enable</button>`}
         </td>
       </tr>
     `;
   }).join("");
 }
 
+async function ltEnableFixture(id){
+  if (!await ltAssertNotLive('Enable Fixture')) return;
+  const r = await ltFetchJson(LT_API.fixtureById(id) + '/enable', { method: 'POST' });
+  if (!r.ok) alert(JSON.stringify(r.json ?? r, null, 2));
+  ltLoadFixturesTable();
+}
+
+async function ltDisableFixture(id){
+  if (!await ltAssertNotLive('Disable Fixture')) return;
+  const r = await ltFetchJson(LT_API.fixtureById(id) + '/disable', { method: 'POST' });
+  if (!r.ok) alert(JSON.stringify(r.json ?? r, null, 2));
+  ltLoadFixturesTable();
+}
+
 function ltFixturePayloadFromForm(){
-  const name = $("fx_name").value.trim();
-  const profile = $("fx_profile").value.trim();
-  const universe = Number($("fx_universe").value);
-  const addr = Number($("fx_addr").value);
-
-  const x = Number($("fx_x").value || 0);
-  const y = Number($("fx_y").value || 0);
-  const z = Number($("fx_z").value || 0);
-
-  const pan_ch = $("fx_pan_ch").value ? Number($("fx_pan_ch").value) : null;
-  const tilt_ch = $("fx_tilt_ch").value ? Number($("fx_tilt_ch").value) : null;
-  const dim_ch = $("fx_dim_ch").value ? Number($("fx_dim_ch").value) : null;
-
-  const invert_pan = $("fx_invert_pan").checked;
-  const invert_tilt = $("fx_invert_tilt").checked;
-
   return {
-    name,
-    profile,
-    dmx: { universe, address: addr },
-    position_cm: { x, y, z },
-    mapping: { pan_ch, tilt_ch, dimmer_ch: dim_ch, invert_pan, invert_tilt }
+    name: $("fx_name").value.trim(),
+    universe: Number($("fx_universe").value),
+    dmx_base_addr: Number($("fx_addr").value),
+    profile_key: $("fx_profile").value.trim(),
+    pos_x_cm: Math.trunc(Number($("fx_x").value || 0)),
+    pos_y_cm: Math.trunc(Number($("fx_y").value || 0)),
+    pos_z_cm: Math.trunc(Number($("fx_z").value || 0)),
   };
 }
 
@@ -305,41 +238,19 @@ async function ltLoadFixtureForEdit(id){
   const out = $("fx_result");
   if (out) out.textContent = "lade…";
 
-  // try GET /fixtures/{id}; fallback to list and search by id/name
-  let r = await ltFetchJson(`${LT_API.fixtures}/${encodeURIComponent(id)}`);
-  if (!r.ok){
-    const rl = await ltFetchJson(LT_API.fixtures);
-    if (rl.ok){
-      const list = Array.isArray(rl.json) ? rl.json : (rl.json.items || rl.json.fixtures || []);
-      const found = list.find(f => String(ltFixtureId(f)) === String(id) || String(f.name) === String(id));
-      if (found) r = { ok:true, status:200, json: found };
-    }
-  }
-
-  if (!r.ok){
+  const r = await ltFetchJson(LT_API.fixtureById(id));
+  if (!r.ok || !r.json){
     if (out) out.textContent = JSON.stringify(r.json ?? r, null, 2);
     return;
   }
 
-  const fx = r.json;
-  $("fx_name").value = fx.name ?? "";
-  $("fx_profile").value = fx.profile ?? fx.profile_name ?? "";
-
-  const dmx = fx.dmx ?? {};
-  $("fx_universe").value = dmx.universe ?? fx.universe ?? 0;
-  $("fx_addr").value = dmx.address ?? fx.address ?? 1;
-
-  const pos = fx.position_cm ?? fx.position ?? {};
-  $("fx_x").value = pos.x ?? 0;
-  $("fx_y").value = pos.y ?? 0;
-  $("fx_z").value = pos.z ?? 0;
-
-  const mapping = fx.mapping ?? fx.dmx_mapping ?? {};
-  $("fx_pan_ch").value = mapping.pan_ch ?? "";
-  $("fx_tilt_ch").value = mapping.tilt_ch ?? "";
-  $("fx_dim_ch").value = mapping.dimmer_ch ?? mapping.dim_ch ?? "";
-  $("fx_invert_pan").checked = !!mapping.invert_pan;
-  $("fx_invert_tilt").checked = !!mapping.invert_tilt;
+  $("fx_name").value = r.json.name ?? "";
+  $("fx_profile").value = r.json.profile_key ?? "";
+  $("fx_universe").value = r.json.universe ?? 1;
+  $("fx_addr").value = r.json.dmx_base_addr ?? 1;
+  $("fx_x").value = r.json.pos_x_cm ?? 0;
+  $("fx_y").value = r.json.pos_y_cm ?? 0;
+  $("fx_z").value = r.json.pos_z_cm ?? 0;
 
   if (out) out.textContent = "";
 }
@@ -352,132 +263,71 @@ async function ltUpdateFixture(ev, id){
   const out = $("fx_result");
   out.textContent = "saving…";
 
-  // try PUT then PATCH
-  let r = await ltFetchJson(`${LT_API.fixtures}/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify(payload) });
-  if (!r.ok){
-    r = await ltFetchJson(`${LT_API.fixtures}/${encodeURIComponent(id)}`, { method: "PATCH", body: JSON.stringify(payload) });
-  }
-
+  const r = await ltFetchJson(LT_API.fixtureById(id), { method: "PUT", body: JSON.stringify(payload) });
   out.textContent = JSON.stringify(r.json ?? r, null, 2);
   if (r.ok) window.location.href = "/ui/fixtures";
 }
 
 async function ltDeleteFixture(id){
   if (!await ltAssertNotLive("Delete Fixture")) return;
-  const ok = confirm(`Fixture wirklich löschen?
-
-ID: ${decodeURIComponent(id)}`);
+  const ok = confirm(`Fixture wirklich löschen?\n\nID: ${id}`);
   if (!ok) return;
 
-  const r = await ltFetchJson(`${LT_API.fixtures}/${id}`, { method: "DELETE" });
+  const r = await ltFetchJson(LT_API.fixtureById(id), { method: "DELETE" });
   if (!r.ok) alert(JSON.stringify(r.json ?? r, null, 2));
 
   if (window.location.pathname.includes("/edit")) window.location.href = "/ui/fixtures";
   else ltLoadFixturesTable();
 }
 
-async function ltDisableFixture(id){
-  if (!await ltAssertNotLive("Disable Fixture")) return;
-  let r = await ltFetchJson(`${LT_API.fixtures}/${id}/disable`, { method: "POST", body: JSON.stringify({}) });
-  if (!r.ok){
-    // fallback: PATCH enabled=false
-    r = await ltFetchJson(`${LT_API.fixtures}/${id}`, { method: "PATCH", body: JSON.stringify({ enabled: false }) });
-  }
-  if (!r.ok) alert(JSON.stringify(r.json ?? r, null, 2));
-  ltLoadFixturesTable();
-}
-
-async function ltEnableFixture(id){
-  if (!await ltAssertNotLive("Enable Fixture")) return;
-  let r = await ltFetchJson(`${LT_API.fixtures}/${id}/enable`, { method: "POST", body: JSON.stringify({}) });
-  if (!r.ok){
-    r = await ltFetchJson(`${LT_API.fixtures}/${id}`, { method: "PATCH", body: JSON.stringify({ enabled: true }) });
-  }
-  if (!r.ok) alert(JSON.stringify(r.json ?? r, null, 2));
-  ltLoadFixturesTable();
-}
-
-// ---------------- Calibration Wizard ----------------
-let ltCalTimer = null;
-
+// ---------------- Calibration ----------------
 async function ltCalibrationPrecheck(){
-  const pre = $("cal_precheck");
-  if (pre) pre.innerHTML = `<li class="muted">lade…</li>`;
   const r = await ltFetchJson(LT_API.state);
-  if (!r.ok || !r.json){
-    if (pre) pre.innerHTML = `<li>State endpoint nicht erreichbar.</li>`;
-    return;
-  }
-  const st = r.json.system_state ?? r.json.state ?? "UNKNOWN";
-  const mqtt_ok = (r.json.mqtt_ok !== undefined) ? r.json.mqtt_ok : null;
-  const anchors = r.json.anchors_online ?? null;
+  if (!r.ok || !r.json) return;
 
-  if ($("cal_state")) $("cal_state").textContent = st;
-  if ($("cal_mqtt")) $("cal_mqtt").textContent = (mqtt_ok === null ? "unknown" : (mqtt_ok ? "OK" : "DOWN"));
-  if ($("cal_anchors")) $("cal_anchors").textContent = (anchors === null ? "unknown" : String(anchors));
-
-  const issues = [];
-  if (st === "LIVE") issues.push("State ist LIVE: Calibration gesperrt.");
-  if (typeof anchors === "number" && anchors < 4) issues.push("Nicht genug Anchors online (min 4).");
-  if (mqtt_ok === false) issues.push("MQTT down (kann ok sein, aber meist unerwünscht).");
-
-  if (pre){
-    pre.innerHTML = (issues.length ? issues : ["OK"]).map(x => `<li>${escapeHtml(x)}</li>`).join("");
-  }
+  if ($("cal_state")) $("cal_state").textContent = r.json.system_state ?? "UNKNOWN";
+  if ($("cal_mqtt")) $("cal_mqtt").textContent = (r.json.mqtt_ok ? "OK" : "DOWN");
+  if ($("cal_anchors")) $("cal_anchors").textContent = String(r.json.anchors_online ?? "unknown");
 }
 
 async function ltCalibrationStart(){
   if (!await ltAssertNotLive("Start Calibration")) return;
+
+  const tagMac = $("cal_tag_mac").value.trim();
+  const duration = Number($("cal_duration").value || 6000);
+  if (!tagMac) { alert("tag_mac ist Pflicht"); return; }
+
   const out = $("cal_out");
   if (out) out.textContent = "starting…";
 
-  const r = await ltFetchJson(LT_API.calibrationStart, { method: "POST", body: JSON.stringify({}) });
+  const r = await ltFetchJson(LT_API.calibrationStart, { method: "POST", body: JSON.stringify({ tag_mac: tagMac, duration_ms: duration }) });
   if (out) out.textContent = JSON.stringify(r.json ?? r, null, 2);
-
-  if (r.ok){
-    ltCalibrationStartPolling();
-  }
+  if (r.ok && r.json?.run_id) $("cal_run_id").value = String(r.json.run_id);
 }
 
 async function ltCalibrationAbort(){
-  if (!await ltAssertNotLive("Abort Calibration")) return;
   const out = $("cal_out");
   if (out) out.textContent = "aborting…";
-
   const r = await ltFetchJson(LT_API.calibrationAbort, { method: "POST", body: JSON.stringify({}) });
   if (out) out.textContent = JSON.stringify(r.json ?? r, null, 2);
-
-  ltCalibrationStopPolling();
 }
 
-function ltCalibrationStartPolling(){
-  ltCalibrationStopPolling();
-  ltCalTimer = setInterval(ltCalibrationPollOnce, 800);
-}
-
-function ltCalibrationStopPolling(){
-  if (ltCalTimer) clearInterval(ltCalTimer);
-  ltCalTimer = null;
-}
-
-async function ltCalibrationPollOnce(){
-  const r = await ltFetchJson(LT_API.calibrationStatus);
-  if ($("cal_status")) $("cal_status").textContent = r.json?.status ?? (r.ok ? "OK" : "ERR");
-  if ($("cal_progress")) $("cal_progress").textContent = r.json?.progress ?? r.json?.samples ?? "—";
-  const out = $("cal_out");
+async function ltCalibrationLoadRuns(){
+  const out = $("cal_runs_out");
+  if (out) out.textContent = "loading…";
+  const tag = ($("cal_runs_tag_mac").value || "").trim();
+  const url = tag ? (LT_API.calibrationRuns + "?tag_mac=" + encodeURIComponent(tag)) : LT_API.calibrationRuns;
+  const r = await ltFetchJson(url);
   if (out) out.textContent = JSON.stringify(r.json ?? r, null, 2);
 }
 
-async function ltCalibrationCommit(){
-  if (!await ltAssertNotLive("Commit Calibration")) return;
-  const r = await ltFetchJson(LT_API.calibrationCommit, { method: "POST", body: JSON.stringify({}) });
-  $("cal_out").textContent = JSON.stringify(r.json ?? r, null, 2);
-}
-
-async function ltCalibrationDiscard(){
-  if (!await ltAssertNotLive("Discard Calibration")) return;
-  const r = await ltFetchJson(LT_API.calibrationDiscard, { method: "POST", body: JSON.stringify({}) });
-  $("cal_out").textContent = JSON.stringify(r.json ?? r, null, 2);
+async function ltCalibrationLoadSelectedRun(){
+  const out = $("cal_runs_out");
+  const id = ($("cal_run_id").value || "").trim();
+  if (!id) { alert("run_id fehlt"); return; }
+  if (out) out.textContent = "loading…";
+  const r = await ltFetchJson(LT_API.calibrationRunById(id));
+  if (out) out.textContent = JSON.stringify(r.json ?? r, null, 2);
 }
 
 // ---------------- Live Monitor ----------------
@@ -486,7 +336,8 @@ let ltLiveTimer = null;
 function ltLiveStart(){
   ltLiveStop();
   ltLiveTick();
-  ltLiveTimer = setInterval(ltLiveTick, 300); // ~3.3 Hz
+  const ms = Math.max(50, Number($("live_poll_ms")?.value || 300));
+  ltLiveTimer = setInterval(ltLiveTick, ms);
 }
 function ltLiveStop(){
   if (ltLiveTimer) clearInterval(ltLiveTimer);
@@ -497,17 +348,38 @@ async function ltLiveTick(){
   const st = await ltGetSystemState();
   if ($("live_state")) $("live_state").textContent = st ?? "unknown";
 
-  // try trackingPosition then tracking
-  let r = await ltFetchJson(LT_API.trackingPosition);
-  if (!r.ok) r = await ltFetchJson(LT_API.tracking);
+  let tagMac = ($("live_tag_mac")?.value || "").trim();
+  if (!tagMac){
+    const rs = await ltFetchJson(LT_API.settings);
+    if (rs.ok && rs.json?.settings){
+      const item = rs.json.settings.find(s => s.key === "tracking.tag_mac");
+      if (item && item.value) tagMac = item.value;
+    }
+  }
+  if (!tagMac){
+    const rt = await ltFetchJson(LT_API.trackingTags);
+    const tags = rt.json?.tags || [];
+    if (tags.length) tagMac = tags[0].tag_mac;
+  }
 
   const out = $("live_out");
+  if (!tagMac){
+    if ($("live_tracking")) $("live_tracking").textContent = "no tag selected";
+    if (out) out.textContent = "Set tracking.tag_mac in Settings oder trage tag_mac ein.";
+    return;
+  }
+
+  const r = await ltFetchJson(LT_API.trackingPos(tagMac));
   if (out) out.textContent = JSON.stringify(r.json ?? r, null, 2);
 
-  const j = r.json || {};
-  const status = j.status ?? j.tracking_status ?? (r.ok ? "OK" : "ERR");
-  const age = j.age_ms ?? j.age ?? "—";
-  const pos = j.position_cm ?? j.position ?? j.pos ?? {};
+  if (!r.ok || !r.json){
+    if ($("live_tracking")) $("live_tracking").textContent = "ERR";
+    return;
+  }
+
+  const status = r.json.state ?? r.json.status ?? "OK";
+  const age = r.json.age_ms ?? r.json.age ?? "—";
+  const pos = r.json.position_cm ?? r.json.position ?? r.json.pos ?? {};
   const p = `${pos.x ?? "?"}, ${pos.y ?? "?"}, ${pos.z ?? "?"}`;
 
   if ($("live_tracking")) $("live_tracking").textContent = status;
@@ -521,112 +393,114 @@ async function ltLoadEvents(){
   if (!body) return;
   body.innerHTML = `<tr><td colspan="4" class="muted">lade…</td></tr>`;
 
-  const lvl = $("log_level") ? $("log_level").value : "";
-  const q = $("log_q") ? $("log_q").value.trim().toLowerCase() : "";
-
-  // try query params if supported
-  const url = new URL(LT_API.events, window.location.origin);
-  url.searchParams.set("limit", "200");
-  if (lvl) url.searchParams.set("level", lvl);
-  if (q) url.searchParams.set("q", q);
-
-  const r = await ltFetchJson(url.pathname + url.search);
+  const r = await ltFetchJson(LT_API.events + "?limit=200");
   if (!r.ok){
     body.innerHTML = `<tr><td colspan="4">Fehler: ${escapeHtml(JSON.stringify(r.json))}</td></tr>`;
     return;
   }
 
-  const list = Array.isArray(r.json) ? r.json : (r.json.items || r.json.events || []);
-  const filtered = list.filter(e => {
-    const elvl = String(e.level ?? e.severity ?? "").toUpperCase();
-    const msg = String(e.message ?? e.msg ?? "").toLowerCase();
-    const cat = String(e.category ?? e.source ?? "").toLowerCase();
-    if (lvl && elvl !== lvl) return false;
-    if (q && !(msg.includes(q) || cat.includes(q))) return false;
-    return true;
-  });
-
-  if (!filtered.length){
+  const list = r.json?.events || [];
+  if (!list.length){
     body.innerHTML = `<tr><td colspan="4" class="muted">Keine Events.</td></tr>`;
     return;
   }
 
-  body.innerHTML = filtered.map(e => {
-    const t = e.time ?? e.ts ?? e.timestamp ?? "";
-    const level = e.level ?? e.severity ?? "";
-    const cat = e.category ?? e.source ?? "";
-    const msg = e.message ?? e.msg ?? JSON.stringify(e);
+  body.innerHTML = list.map(e => {
+    const t = e.ts_ms ?? "";
+    const level = e.level ?? "";
+    const cat = e.source ?? "";
+    const msg = e.event_type ?? "";
+    const details = e.details_json ?? "";
     return `
       <tr>
         <td>${escapeHtml(String(t))}</td>
         <td>${escapeHtml(String(level))}</td>
         <td>${escapeHtml(String(cat))}</td>
-        <td>${escapeHtml(String(msg))}</td>
+        <td>${escapeHtml(String(msg))}<div class="muted">${escapeHtml(String(details))}</div></td>
       </tr>
     `;
   }).join("");
 }
 
-// ---------------- Settings ----------------
+// ---------------- Settings (Key/Value) ----------------
+function ltAddSettingRow(key="", value=""){
+  const body = $("settings_tbody");
+  if (!body) return;
+  const row = document.createElement("tr");
+  row.innerHTML = `
+    <td><input class="kv_in" value="${escapeHtml(key)}" placeholder="key" /></td>
+    <td><input class="kv_in" value="${escapeHtml(value)}" placeholder="value" /></td>
+    <td class="row">
+      <button class="btn danger" type="button">Remove</button>
+    </td>
+  `;
+  row.querySelector("button").addEventListener("click", () => row.remove());
+  body.appendChild(row);
+}
+
 async function ltLoadSettings(){
   const out = $("settings_out");
   if (out) out.textContent = "lade…";
+
+  const body = $("settings_tbody");
+  if (body) body.innerHTML = `<tr><td colspan="3" class="muted">lade…</td></tr>`;
 
   const r = await ltFetchJson(LT_API.settings);
   if (out) out.textContent = JSON.stringify(r.json ?? r, null, 2);
   if (!r.ok || !r.json) return;
 
-  // map common names (be liberal)
-  $("set_mqtt_host").value = r.json.mqtt_host ?? r.json.mqtt?.host ?? "";
-  $("set_mqtt_port").value = r.json.mqtt_port ?? r.json.mqtt?.port ?? "";
-  $("set_tracking_hz").value = r.json.tracking_hz ?? r.json.tracking_rate_hz ?? "";
-  $("set_dmx_hz").value = r.json.dmx_hz ?? r.json.dmx_rate_hz ?? "";
-  $("set_min_anchors").value = r.json.min_anchors ?? r.json.min_anchors_required ?? "";
+  const items = r.json.settings || [];
+  if (body){
+    body.innerHTML = "";
+    if (!items.length){
+      body.innerHTML = `<tr><td colspan="3" class="muted">Keine Settings.</td></tr>`;
+    } else {
+      for (const it of items) ltAddSettingRow(it.key, it.value);
+    }
+  }
 }
 
 async function ltSaveSettings(){
   if (!await ltAssertNotLive("Save Settings")) return;
 
-  const payload = {
-    mqtt_host: $("set_mqtt_host").value.trim() || null,
-    mqtt_port: $("set_mqtt_port").value ? Number($("set_mqtt_port").value) : null,
-    tracking_hz: $("set_tracking_hz").value ? Number($("set_tracking_hz").value) : null,
-    dmx_hz: $("set_dmx_hz").value ? Number($("set_dmx_hz").value) : null,
-    min_anchors: $("set_min_anchors").value ? Number($("set_min_anchors").value) : null,
-  };
-
+  const body = $("settings_tbody");
   const out = $("settings_out");
-  out.textContent = "saving…";
+  if (!body) return;
 
-  // try PUT then POST
-  let r = await ltFetchJson(LT_API.settings, { method: "PUT", body: JSON.stringify(payload) });
-  if (!r.ok) r = await ltFetchJson(LT_API.settings, { method: "POST", body: JSON.stringify(payload) });
+  const rows = [...body.querySelectorAll("tr")];
+  const items = rows.map(r => {
+    const ins = r.querySelectorAll("input.kv_in");
+    if (ins.length < 2) return null;
+    return { key: ins[0].value.trim(), value: ins[1].value };
+  }).filter(x => x && x.key);
 
-  out.textContent = JSON.stringify(r.json ?? r, null, 2);
+  out.textContent = "saving… (PUT one-by-one)";
+
+  const results = [];
+  for (const it of items){
+    const rr = await ltFetchJson(LT_API.settings, { method: "PUT", body: JSON.stringify(it) });
+    results.push({ key: it.key, ok: rr.ok, status: rr.status, resp: rr.json });
+  }
+  out.textContent = JSON.stringify({ saved: results.length, results }, null, 2);
 }
 
-// Expose to window for onclick handlers
+// Expose to window
 window.ltRefreshFooterState = ltRefreshFooterState;
 window.ltRefreshDashboard = ltRefreshDashboard;
 
-window.ltLoadAnchors = ltLoadAnchors;
 window.ltSetAnchorPosition = ltSetAnchorPosition;
-window.ltPrefillFromSelectedAnchor = ltPrefillFromSelectedAnchor;
 
 window.ltLoadFixturesTable = ltLoadFixturesTable;
 window.ltCreateFixture = ltCreateFixture;
 window.ltLoadFixtureForEdit = ltLoadFixtureForEdit;
 window.ltUpdateFixture = ltUpdateFixture;
 window.ltDeleteFixture = ltDeleteFixture;
-window.ltDisableFixture = ltDisableFixture;
-window.ltEnableFixture = ltEnableFixture;
 
 window.ltCalibrationPrecheck = ltCalibrationPrecheck;
 window.ltCalibrationStart = ltCalibrationStart;
 window.ltCalibrationAbort = ltCalibrationAbort;
-window.ltCalibrationPollOnce = ltCalibrationPollOnce;
-window.ltCalibrationCommit = ltCalibrationCommit;
-window.ltCalibrationDiscard = ltCalibrationDiscard;
+window.ltCalibrationLoadRuns = ltCalibrationLoadRuns;
+window.ltCalibrationLoadSelectedRun = ltCalibrationLoadSelectedRun;
 
 window.ltLiveStart = ltLiveStart;
 window.ltLiveStop = ltLiveStop;
@@ -635,3 +509,4 @@ window.ltLiveTick = ltLiveTick;
 window.ltLoadEvents = ltLoadEvents;
 window.ltLoadSettings = ltLoadSettings;
 window.ltSaveSettings = ltSaveSettings;
+window.ltAddSettingRow = ltAddSettingRow;

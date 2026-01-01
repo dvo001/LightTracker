@@ -1,60 +1,48 @@
 {% extends "base.html" %}
 {% block content %}
-<h1>Fixture bearbeiten</h1>
+<h1>Edit Fixture</h1>
 
 <div class="card">
-  <div class="muted">ID: <span id="fx_id">{{ fixture_id }}</span></div>
-  <p class="muted">Felder mit <span class="req">*</span> sind zwingend.</p>
+  <div class="card-title">Fixture ändern</div>
+  <div class="muted">ID: <code id="fx_id">{{ fixture_id }}</code></div>
 
-  <form class="form" id="fixtureEditForm" onsubmit="ltUpdateFixture(event, '{{ fixture_id }}')">
-    <label>Name <span class="req">*</span></label>
-    <input id="fx_name" required />
+  <form onsubmit="ltUpdateFixture(event, {{ fixture_id }})">
+    <div class="formgrid">
+      <label>Name <span class="req">*</span>
+        <input id="fx_name" required />
+      </label>
 
-    <label>Profil <span class="req">*</span></label>
-    <input id="fx_profile" required />
+      <label>Universe <span class="req">*</span>
+        <input id="fx_universe" type="number" required min="1" />
+      </label>
 
-    <label>Universe <span class="req">*</span></label>
-    <input id="fx_universe" type="number" min="0" max="32767" required />
+      <label>DMX Base Address <span class="req">*</span>
+        <input id="fx_addr" type="number" required min="1" max="512" />
+      </label>
 
-    <label>DMX Address <span class="req">*</span></label>
-    <input id="fx_addr" type="number" min="1" max="512" required />
+      <label>Profile Key <span class="req">*</span>
+        <input id="fx_profile" required />
+      </label>
 
-    <label>X (cm)</label>
-    <input id="fx_x" type="number" />
+      <label>Pos X (cm)
+        <input id="fx_x" type="number" />
+      </label>
+      <label>Pos Y (cm)
+        <input id="fx_y" type="number" />
+      </label>
+      <label>Pos Z (cm)
+        <input id="fx_z" type="number" />
+      </label>
+    </div>
 
-    <label>Y (cm)</label>
-    <input id="fx_y" type="number" />
-
-    <label>Z (cm)</label>
-    <input id="fx_z" type="number" />
-
-    <hr class="sep" />
-
-    <div class="muted" style="grid-column:1/-1;">Optionales Mapping</div>
-
-    <label>PAN Channel</label>
-    <input id="fx_pan_ch" type="number" min="1" max="512" />
-
-    <label>TILT Channel</label>
-    <input id="fx_tilt_ch" type="number" min="1" max="512" />
-
-    <label>DIMMER Channel</label>
-    <input id="fx_dim_ch" type="number" min="1" max="512" />
-
-    <label>Invert PAN</label>
-    <input id="fx_invert_pan" type="checkbox" />
-
-    <label>Invert TILT</label>
-    <input id="fx_invert_tilt" type="checkbox" />
-
-    <div class="row" style="grid-column: 1 / -1; margin-top: 10px;">
-      <button class="btn" type="submit">Speichern</button>
-      <a class="btn" href="/ui/fixtures">Zurück</a>
-      <button class="btn danger" type="button" onclick="ltDeleteFixture('{{ fixture_id }}')">Löschen</button>
+    <div class="row">
+      <button class="btn primary" type="submit">Save</button>
+      <a class="btn" href="/ui/fixtures">Back</a>
+      <button class="btn danger" type="button" onclick="ltDeleteFixture({{ fixture_id }})">Delete</button>
     </div>
   </form>
 
-  <pre id="fx_result" class="pre"></pre>
+  <pre class="pre" id="fx_result"></pre>
 </div>
 {% endblock %}
 
@@ -62,7 +50,7 @@
 <script>
 document.addEventListener("DOMContentLoaded", () => {
   ltRefreshFooterState();
-  ltLoadFixtureForEdit("{{ fixture_id }}");
+  ltLoadFixtureForEdit({{ fixture_id }});
 });
 </script>
 {% endblock %}

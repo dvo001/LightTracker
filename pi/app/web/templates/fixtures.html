@@ -2,33 +2,32 @@
 {% block content %}
 <h1>Fixtures</h1>
 
-<div class="card">
-  <div class="row">
-    <a class="btn" href="/ui/fixtures/new">+ Fixture anlegen</a>
-    <button class="btn" onclick="ltLoadFixturesTable()">Refresh</button>
-  </div>
-  <div class="muted" style="margin-top:10px;">Actions sind in LIVE gesperrt (Safety).</div>
+<div class="row" style="margin-bottom: 10px;">
+  <a class="btn primary" href="/ui/fixtures/new">+ New Fixture</a>
+  <button class="btn" onclick="ltLoadFixturesTable()">Reload</button>
+</div>
 
-  <div class="tablewrap" style="margin-top:12px;">
-    <table class="tbl">
+<div class="card">
+  <div class="card-title">Fixture Liste</div>
+  <div class="tablewrap">
+    <table class="tbl" style="min-width: 980px;">
       <thead>
         <tr>
+          <th>ID</th>
+          <th>Enabled</th>
           <th>Name</th>
-          <th>Profil</th>
-          <th>Universe</th>
-          <th>Addr</th>
-          <th>Status</th>
+          <th>Profile</th>
+          <th>Uni</th>
+          <th>Base Addr</th>
           <th>Pos (cm)</th>
-          <th>Aktionen</th>
+          <th>Actions</th>
         </tr>
       </thead>
       <tbody id="fx_tbody">
-        <tr><td colspan="7" class="muted">lade…</td></tr>
+        <tr><td colspan="8" class="muted">lade…</td></tr>
       </tbody>
     </table>
   </div>
-
-  <pre id="fixtures_out" class="pre" style="display:none;"></pre>
 </div>
 {% endblock %}
 

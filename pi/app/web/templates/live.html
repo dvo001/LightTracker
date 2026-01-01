@@ -2,25 +2,40 @@
 {% block content %}
 <h1>Live Monitor</h1>
 
-<div class="grid">
+<div class="grid2">
   <div class="card">
     <div class="card-title">Tracking</div>
-    <div class="kv">
-      <div class="k">State</div><div class="v" id="live_state">…</div>
-      <div class="k">Tracking</div><div class="v" id="live_tracking">…</div>
-      <div class="k">Age (ms)</div><div class="v" id="live_age">…</div>
-      <div class="k">Position (cm)</div><div class="v" id="live_pos">…</div>
+    <div class="muted">
+      Phase-1: Positions werden aus <code>/api/v1/tracking/position/{tag_mac}</code> gelesen.
+      Setze <code>tracking.tag_mac</code> in Settings oder trage Tag unten ein.
     </div>
-    <div class="row" style="margin-top:10px;">
-      <button class="btn" onclick="ltLiveStart()">Start</button>
+
+    <div class="formgrid" style="margin-top:10px;">
+      <label>tag_mac
+        <input id="live_tag_mac" placeholder="leer = settings/tracking/tags" />
+      </label>
+      <label>poll_ms
+        <input id="live_poll_ms" type="number" value="300" min="50" />
+      </label>
+    </div>
+
+    <div class="kv" style="margin-top:10px;">
+      <div class="k">System State</div><div class="v" id="live_state">…</div>
+      <div class="k">Tracking State</div><div class="v" id="live_tracking">…</div>
+      <div class="k">Age (ms)</div><div class="v" id="live_age">…</div>
+      <div class="k">Pos (cm)</div><div class="v" id="live_pos">…</div>
+    </div>
+
+    <div class="row">
+      <button class="btn primary" onclick="ltLiveStart()">Start</button>
       <button class="btn" onclick="ltLiveStop()">Stop</button>
-      <button class="btn" onclick="ltLiveTick()">Once</button>
+      <button class="btn" onclick="ltLiveTick()">Tick</button>
     </div>
   </div>
 
   <div class="card">
-    <div class="card-title">Debug</div>
-    <pre id="live_out" class="pre">…</pre>
+    <div class="card-title">Payload</div>
+    <pre class="pre" id="live_out"></pre>
   </div>
 </div>
 {% endblock %}
@@ -29,7 +44,6 @@
 <script>
 document.addEventListener("DOMContentLoaded", () => {
   ltRefreshFooterState();
-  ltLiveStart();
 });
 </script>
 {% endblock %}

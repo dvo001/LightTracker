@@ -1,4 +1,29 @@
 from fastapi import APIRouter, HTTPException
+from ..db import connect_db
+import time
+
+router = APIRouter()
+
+
+def ensure_fixtures_table(db):
+    db.execute('''CREATE TABLE IF NOT EXISTS fixtures (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT,
+        profile_key TEXT,
+        universe INTEGER,
+        dmx_base_addr INTEGER,
+        pos_x_cm INTEGER,
+
+def delete_fixture(fid: int):
+    db = connect_db()
+    try:
+        ensure_fixtures_table(db)
+        db.execute('DELETE FROM fixtures WHERE id=?', (fid,))
+        db.commit()
+    finally:
+        db.close()
+    return {'ok': True}
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 from typing import Optional
 
