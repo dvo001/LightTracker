@@ -32,6 +32,28 @@ def startup():
     # initialize state for websocket clients and calibration
     app.state.ws_clients = set()
     app.state.active_calibration = None
+    # initialize tracking engine (lazy: may import paho later)
+    try:
+        from .core.tracking_engine import TrackingEngine
+        te = TrackingEngine()
+        app.state.tracking_engine = te
+        try:
+            loop.create_task(te.run())
+        except Exception:
+            pass
+    except Exception:
+        app.state.tracking_engine = None
+    # start mqtt client (if available) and wire to tracking_engine
+    try:
+        from .mqtt_client import MQTTClientWrapper
+        mc = MQTTClientWrapper(broker_host=os.environ.get('MQTT_HOST','localhost'), broker_port=int(os.environ.get('MQTT_PORT','1883')), tracking_engine=app.state.tracking_engine)
+        app.state.mqtt_client = mc
+        try:
+            mc.start()
+        except Exception:
+            pass
+    except Exception:
+        app.state.mqtt_client = None
 
     # start broadcaster task
     loop = asyncio.get_event_loop()
