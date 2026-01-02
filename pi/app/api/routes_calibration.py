@@ -1,8 +1,12 @@
 from fastapi import APIRouter, HTTPException, Request
+from pydantic import BaseModel, Field
 from ..db import connect_db
 import time
 import asyncio
 import json
+
+from app.core.calibration_manager import CalibrationManager
+from app.core.state_manager import StateManager
 
 router = APIRouter()
 
@@ -24,105 +28,59 @@ def ensure_calibration_table(db):
     db.commit()
 
 
+class CalStart(BaseModel):
+    tag_mac: str
+    duration_ms: int = Field(6000, ge=100, le=60000)
+
+
 @router.get('/calibration/status')
 def calibration_status(request: Request):
-    st = request.app.state
-    active = getattr(st, 'active_calibration', None)
-    if not active:
+    cm = getattr(request.app.state, 'calibration_manager', None)
+    if not cm:
         return {'running': False, 'run_id': None, 'tag_mac': None, 'started_at_ms': None, 'progress': {}}
-    # return snapshot
-    return {
-        'running': True,
-        'run_id': active.get('run_id'),
-        'tag_mac': active.get('tag_mac'),
-        'started_at_ms': active.get('started_at_ms'),
-        'progress': active.get('progress', {})
-    }
+    return cm.status()
 
 
 @router.post('/calibration/start')
-async def calibration_start(payload: dict, request: Request):
-    tag_mac = payload.get('tag_mac')
-    duration_ms = int(payload.get('duration_ms', 6000))
-    if not tag_mac:
-        raise HTTPException(status_code=400, detail='tag_mac required')
-
-    db = connect_db()
+async def calibration_start(payload: CalStart, request: Request):
+    sm = StateManager()
+    if sm.get_state() == "LIVE":
+        raise HTTPException(status_code=409, detail={'code': 'STATE_BLOCKED', 'message': 'Cannot start calibration while LIVE'})
+    cm = getattr(request.app.state, 'calibration_manager', None)
+    if not cm:
+        # init on demand
+        from app.core.tracking_engine import TrackingEngine
+        te = getattr(request.app.state, 'tracking_engine', TrackingEngine())
+        cm = CalibrationManager(te.range_cache)
+        request.app.state.calibration_manager = cm
     try:
-        ensure_calibration_table(db)
-        ts = int(time.time() * 1000)
-        cur = db.execute('INSERT INTO calibration_runs (tag_mac, started_at_ms, status, params_json) VALUES (?,?,?,?)', (
-            tag_mac, ts, 'running', json.dumps({'duration_ms': duration_ms})
-        ))
-        db.commit()
-        run_id = cur.lastrowid
-    finally:
-        db.close()
-
-    # store active run in app state
-    st = request.app.state
-    st.active_calibration = {
-        'run_id': run_id,
-        'tag_mac': tag_mac,
-        'started_at_ms': ts,
-        'duration_ms': duration_ms,
-        'progress': {'samples': 0, 'duration_ms': 0}
-    }
-
-    # start background task to simulate collection
+        run_id = cm.start(payload.tag_mac, payload.duration_ms)
+    except RuntimeError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    # schedule ticking loop
     loop = asyncio.get_event_loop()
-    loop.create_task(_run_calibration_simulator(request.app, run_id))
-
+    loop.create_task(_cal_tick_loop(cm))
+    sm.set_state("CALIBRATION")
     return {'ok': True, 'run_id': run_id}
 
 
-async def _run_calibration_simulator(app, run_id: int):
-    st = app.state
-    active = getattr(st, 'active_calibration', None)
-    if not active or active.get('run_id') != run_id:
-        return
-    duration = active.get('duration_ms', 6000)
-    start = active.get('started_at_ms')
-    interval = 0.5
-    elapsed = 0.0
-    samples = 0
-    while elapsed * 1000 < duration:
-        await asyncio.sleep(interval)
-        elapsed += interval
-        samples += 1
-        active['progress'] = {'samples': samples, 'duration_ms': int(elapsed*1000)}
-    # finish run
-    ts_end = int(time.time() * 1000)
-    # write result
-    db = connect_db()
-    try:
-        summary = {'samples': samples, 'duration_ms': int(elapsed*1000), 'result': 'OK'}
-        db.execute('UPDATE calibration_runs SET ended_at_ms=?, result=?, summary_json=?, status=? WHERE id=?', (
-            ts_end, 'OK', json.dumps(summary), 'finished', run_id
-        ))
-        db.commit()
-    finally:
-        db.close()
-    # clear active
-    st.active_calibration = None
+async def _cal_tick_loop(cm: CalibrationManager):
+    while cm.active:
+        cm.tick()
+        await asyncio.sleep(0.1)
+    # done -> set state back to SETUP
+    sm = StateManager()
+    sm.set_state("SETUP")
 
 
 @router.post('/calibration/abort')
 def calibration_abort(request: Request):
-    st = request.app.state
-    active = getattr(st, 'active_calibration', None)
-    if not active:
+    cm = getattr(request.app.state, 'calibration_manager', None)
+    if not cm or not cm.active:
         return {'ok': False, 'error': 'no active run'}
-    run_id = active.get('run_id')
-    ts = int(time.time() * 1000)
-    db = connect_db()
-    try:
-        db.execute('UPDATE calibration_runs SET ended_at_ms=?, result=?, status=? WHERE id=?', (ts, 'ABORTED', 'aborted', run_id))
-        db.commit()
-    finally:
-        db.close()
-    st.active_calibration = None
-    return {'ok': True, 'run_id': run_id}
+    cm.abort()
+    StateManager().set_state("SETUP")
+    return {'ok': True, 'run_id': None}
 
 
 @router.post('/calibration/commit/{run_id}')

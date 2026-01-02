@@ -8,38 +8,67 @@ try:
 except Exception:
     mqtt = None
 
+from app.db.persistence import get_persistence
+
 class MQTTClientWrapper:
     def __init__(self, broker_host='localhost', broker_port=1883, tracking_engine=None):
         self.broker_host = broker_host
         self.broker_port = broker_port
         self.tracking_engine = tracking_engine
         self._client = None
+        self.connected = False
 
     def _on_connect(self, client, userdata, flags, rc):
         try:
-            client.subscribe('lighttracking/anchors/+/range_batch')
+            client.subscribe('dev/+/status')
+            client.subscribe('dev/+/ranges')
+            client.subscribe('dev/+/cmd_ack')
+            # mark mqtt ok
+            try:
+                p = get_persistence()
+                p.upsert_setting('mqtt.ok', 'true')
+            except Exception:
+                pass
         except Exception:
             pass
 
     def _on_message(self, client, userdata, msg):
+        topic_parts = msg.topic.split('/')
         try:
             payload = json.loads(msg.payload.decode('utf-8'))
         except Exception:
             return
-        anchor_mac = payload.get('anchor_mac')
-        ts_ms = int(payload.get('ts_ms', time.time()*1000))
-        ranges = payload.get('ranges', [])
-        if not anchor_mac or not ranges:
-            return
-        if self.tracking_engine:
-            try:
-                self.tracking_engine.enqueue_range_batch(anchor_mac, ts_ms, ranges)
-            except Exception:
-                pass
+        p = get_persistence()
+        if len(topic_parts) >= 3 and topic_parts[0] == 'dev':
+            mac = topic_parts[1]
+            ttype = topic_parts[2]
+            if ttype == 'status':
+                ts_ms = int(payload.get('ts_ms', time.time()*1000))
+                p.upsert_device({
+                    'mac': mac,
+                    'role': payload.get('role'),
+                    'fw': payload.get('fw'),
+                    'ip_last': payload.get('ip'),
+                    'status': payload.get('status', 'ONLINE'),
+                    'last_seen_at_ms': ts_ms
+                })
+            elif ttype == 'ranges':
+                anchor_mac = payload.get('anchor_mac') or mac
+                ts_ms = int(payload.get('ts_ms', time.time()*1000))
+                ranges = payload.get('ranges', [])
+                if anchor_mac and ranges and self.tracking_engine:
+                    try:
+                        self.tracking_engine.enqueue_range_batch(anchor_mac, ts_ms, ranges)
+                    except Exception:
+                        pass
+            elif ttype == 'cmd_ack':
+                # basic logging
+                p.append_event('INFO', 'mqtt', 'cmd_ack', ref=mac, details_json=json.dumps(payload))
 
     def start(self):
         if mqtt is None:
             print('paho.mqtt not installed; mqtt client disabled')
+            self.connected = False
             return
         self._client = mqtt.Client()
         self._client.on_connect = self._on_connect
@@ -48,12 +77,19 @@ class MQTTClientWrapper:
             self._client.connect(self.broker_host, self.broker_port, 60)
             t = threading.Thread(target=self._client.loop_forever, daemon=True)
             t.start()
+            self.connected = True
         except Exception as e:
             print('mqtt connect failed', e)
+            self.connected = False
 
     def stop(self):
         try:
             if self._client:
                 self._client.disconnect()
+        except Exception:
+            pass
+        try:
+            p = get_persistence()
+            p.upsert_setting('mqtt.ok', 'false')
         except Exception:
             pass

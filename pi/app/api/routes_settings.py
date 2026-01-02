@@ -14,10 +14,22 @@ class SettingItem(BaseModel):
 router = APIRouter()
 
 
+def _ensure_settings_table(conn):
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS settings (
+            key TEXT PRIMARY KEY,
+            value TEXT,
+            updated_at_ms INTEGER
+        )"""
+    )
+    conn.commit()
+
+
 @router.get("/settings")
 def list_settings():
     db = get_db_path()
     conn = sqlite3.connect(db)
+    _ensure_settings_table(conn)
     cur = conn.execute("SELECT key,value FROM settings")
     items = [{"key": r[0], "value": r[1]} for r in cur.fetchall()]
     conn.close()
@@ -34,6 +46,7 @@ def put_setting(item: SettingItem):
 
     db = get_db_path()
     conn = sqlite3.connect(db)
+    _ensure_settings_table(conn)
     ts = int(__import__('time').time() * 1000)
     conn.execute("INSERT OR REPLACE INTO settings(key,value,updated_at_ms) VALUES(?,?,?)", (item.key, item.value, ts))
     conn.commit()

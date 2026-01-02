@@ -1,0 +1,9 @@
+fastapi
+uvicorn
+paho-mqtt
+jinja2
+pydantic
+sqlite-utils
+pytest
+pyserial
+httpx

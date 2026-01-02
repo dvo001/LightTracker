@@ -22,7 +22,7 @@ void setup() {
 void loop() {
   mqtt.loop();
   unsigned long now = millis();
-  if (now - last_status >= 5000) {
+  if (now - last_status >= (unsigned long)cmdh.heartbeat_ms) {
     String st = JsonPayloads::status_payload("ONLINE", "0.0.0.0", millis(), mqtt.reconnects, at.parse_errors);
     String topic = String("dev/") + DeviceIdentity::mac_nocolon() + "/status";
     mqtt.publish(topic, st);
@@ -59,7 +59,7 @@ void loop() {
 #else
     // real mode: poll AT adapter and collect ranges
     at.poll();
-    // AT adapter should invoke callbacks to collect ranges; TODO publish collected batch
+    // TODO: collect from AT adapter callback and publish batch
 #endif
     last_ranges = now;
   }

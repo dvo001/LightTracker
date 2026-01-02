@@ -1,29 +1,4 @@
 from fastapi import APIRouter, HTTPException
-from ..db import connect_db
-import time
-
-router = APIRouter()
-
-
-def ensure_fixtures_table(db):
-    db.execute('''CREATE TABLE IF NOT EXISTS fixtures (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT,
-        profile_key TEXT,
-        universe INTEGER,
-        dmx_base_addr INTEGER,
-        pos_x_cm INTEGER,
-
-def delete_fixture(fid: int):
-    db = connect_db()
-    try:
-        ensure_fixtures_table(db)
-        db.execute('DELETE FROM fixtures WHERE id=?', (fid,))
-        db.commit()
-    finally:
-        db.close()
-    return {'ok': True}
-from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 from typing import Optional
 
@@ -35,6 +10,7 @@ def _assert_not_live(p):
     state = p.get_setting('system.state', 'SETUP')
     if state == 'LIVE':
         raise HTTPException(status_code=409, detail={"code": "STATE_BLOCKED", "message": "Operation not allowed while system is LIVE"})
+
 
 router = APIRouter()
 
@@ -109,4 +85,24 @@ def delete_fixture(fid: int):
     if not ok:
         raise HTTPException(status_code=404)
     return {"deleted": True}
+
+
+@router.post("/fixtures/{fid}/enable")
+def enable_fixture(fid: int):
+    p = get_persistence()
+    _assert_not_live(p)
+    ok = p.update_fixture(fid, {"enabled": 1})
+    if not ok:
+        raise HTTPException(status_code=404)
+    return {"ok": True}
+
+
+@router.post("/fixtures/{fid}/disable")
+def disable_fixture(fid: int):
+    p = get_persistence()
+    _assert_not_live(p)
+    ok = p.update_fixture(fid, {"enabled": 0})
+    if not ok:
+        raise HTTPException(status_code=404)
+    return {"ok": True}
 # /fixtures routes
