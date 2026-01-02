@@ -1,9 +1,48 @@
 {% extends "base.html" %}
-
 {% block content %}
-<section class="card">
-  <h1>Settings</h1>
-  <div id="settings">Loading settings...</div>
-  <button id="save-settings" class="btn">Save</button>
-</section>
+<h1>Settings</h1>
+
+<div class="grid2">
+  <div class="card">
+    <div class="card-title">Settings (Key/Value)</div>
+    <div class="row">
+      <button class="btn" onclick="ltLoadSettings()">Reload</button>
+      <button class="btn" onclick="ltAddSettingRow()">+ Row</button>
+      <button class="btn primary" onclick="ltSaveSettings()">Save All</button>
+    </div>
+
+    <div class="tablewrap" style="margin-top:12px;">
+      <table class="tbl" style="min-width: 760px;">
+        <thead>
+          <tr><th>Key</th><th>Value</th><th>Actions</th></tr>
+        </thead>
+        <tbody id="settings_tbody">
+          <tr><td colspan="3" class="muted">lade…</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <pre id="settings_out" class="pre" style="margin-top:12px;"></pre>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Common Keys</div>
+    <ul class="list">
+      <li><code>system.state</code> = <code>SETUP</code> | <code>SAFE</code></li>
+      <li><code>tracking.tag_mac</code> = Tag MAC für Calibration/Live</li>
+      <li><code>anchors.required</code> = Mindestanzahl Anchors</li>
+      <li><code>dmx.uart_device</code> = z.B. <code>/dev/ttyUSB0</code></li>
+      <li><code>mqtt.host</code>, <code>mqtt.port</code></li>
+    </ul>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+  ltRefreshFooterState();
+  ltLoadSettings();
+});
+</script>
 {% endblock %}

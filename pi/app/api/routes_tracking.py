@@ -1,31 +1,26 @@
-from fastapi import APIRouter, HTTPException
-from typing import List
-
-from app.core.tracking_engine import TrackingEngine
-from app.main import app as main_app
-
+from fastapi import APIRouter, Request, HTTPException
 router = APIRouter()
 
 
-@router.get("/tracking/tags")
-def list_tags():
-    # read from running engine
-    engine = getattr(main_app.state, 'tracking_engine', None)
-    if not engine:
-        return {"tags": []}
-    items = []
-    for tag, payload in engine.latest_position.items():
-        items.append({"tag_mac": tag, "state": payload.get('state')})
-    return {"tags": items}
+@router.get('/tracking/tags')
+def list_tracking_tags(request: Request):
+    te = getattr(request.app.state, 'tracking_engine', None)
+    if not te:
+        return {'tags': []}
+    out = []
+    now = int(__import__('time').time()*1000)
+    for tag, payload in te.latest_position.items():
+        age = now - payload.get('ts_ms', now)
+        out.append({'tag_mac': tag, 'state': payload.get('state'), 'age_ms': age, 'anchors_used': payload.get('anchors_used'), 'quality': payload.get('quality'), 'last_ts_ms': payload.get('ts_ms')})
+    return {'tags': out}
 
 
-@router.get("/tracking/position/{tag_mac}")
-def get_position(tag_mac: str):
-    engine = getattr(main_app.state, 'tracking_engine', None)
-    if not engine:
-        raise HTTPException(status_code=404, detail="tracking not running")
-    payload = engine.latest_position.get(tag_mac)
-    if not payload:
-        raise HTTPException(status_code=404, detail="no position for tag")
-    return payload
-# /tracking routes
+@router.get('/tracking/position/{tag_mac}')
+def get_tracking_position(tag_mac: str, request: Request):
+    te = getattr(request.app.state, 'tracking_engine', None)
+    if not te:
+        raise HTTPException(status_code=404, detail='tracking engine not available')
+    p = te.latest_position.get(tag_mac)
+    if not p:
+        raise HTTPException(status_code=404, detail='not found')
+    return p

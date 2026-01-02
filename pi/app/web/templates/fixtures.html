@@ -1,11 +1,41 @@
 {% extends "base.html" %}
-
 {% block content %}
-<section class="card">
-  <h1>Fixtures</h1>
-  <div id="fixtures">
-    <p>Loading fixtures...</p>
+<h1>Fixtures</h1>
+
+<div class="row" style="margin-bottom: 10px;">
+  <a class="btn primary" href="/ui/fixtures/new">+ New Fixture</a>
+  <button class="btn" onclick="ltLoadFixturesTable()">Reload</button>
+</div>
+
+<div class="card">
+  <div class="card-title">Fixture Liste</div>
+  <div class="tablewrap">
+    <table class="tbl" style="min-width: 980px;">
+      <thead>
+        <tr>
+          <th>ID</th>
+          <th>Enabled</th>
+          <th>Name</th>
+          <th>Profile</th>
+          <th>Uni</th>
+          <th>Base Addr</th>
+          <th>Pos (cm)</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody id="fx_tbody">
+        <tr><td colspan="8" class="muted">lade…</td></tr>
+      </tbody>
+    </table>
   </div>
-  <a class="btn" href="/ui/fixtures/new">New Fixture</a>
-</section>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+  ltRefreshFooterState();
+  ltLoadFixturesTable();
+});
+</script>
 {% endblock %}

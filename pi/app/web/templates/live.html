@@ -1,10 +1,49 @@
 {% extends "base.html" %}
-
 {% block content %}
-<section class="card">
-  <h1>Live Monitor</h1>
-  <div id="live">
-    <p>Waiting for tracking data...</p>
+<h1>Live Monitor</h1>
+
+<div class="grid2">
+  <div class="card">
+    <div class="card-title">Tracking</div>
+    <div class="muted">
+      Phase-1: Positions werden aus <code>/api/v1/tracking/position/{tag_mac}</code> gelesen.
+      Setze <code>tracking.tag_mac</code> in Settings oder trage Tag unten ein.
+    </div>
+
+    <div class="formgrid" style="margin-top:10px;">
+      <label>tag_mac
+        <input id="live_tag_mac" placeholder="leer = settings/tracking/tags" />
+      </label>
+      <label>poll_ms
+        <input id="live_poll_ms" type="number" value="300" min="50" />
+      </label>
+    </div>
+
+    <div class="kv" style="margin-top:10px;">
+      <div class="k">System State</div><div class="v" id="live_state">…</div>
+      <div class="k">Tracking State</div><div class="v" id="live_tracking">…</div>
+      <div class="k">Age (ms)</div><div class="v" id="live_age">…</div>
+      <div class="k">Pos (cm)</div><div class="v" id="live_pos">…</div>
+    </div>
+
+    <div class="row">
+      <button class="btn primary" onclick="ltLiveStart()">Start</button>
+      <button class="btn" onclick="ltLiveStop()">Stop</button>
+      <button class="btn" onclick="ltLiveTick()">Tick</button>
+    </div>
   </div>
-</section>
+
+  <div class="card">
+    <div class="card-title">Payload</div>
+    <pre class="pre" id="live_out"></pre>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+  ltRefreshFooterState();
+});
+</script>
 {% endblock %}

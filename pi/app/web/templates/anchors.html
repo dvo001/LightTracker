@@ -1,10 +1,69 @@
 {% extends "base.html" %}
-
 {% block content %}
-<section class="card">
-  <h1>Anchors</h1>
-  <div id="anchors">
-    <p>Loading anchors...</p>
+<h1>Anchors</h1>
+
+<div class="grid2">
+  <div class="card">
+    <div class="card-title">Anchor Position setzen (SETUP only)</div>
+    <form onsubmit="ltSetAnchorPosition(event)">
+      <div class="formgrid">
+        <label>MAC <span class="req">*</span>
+          <input id="anc_mac" required placeholder="AA:BB:CC:DD:EE:FF" />
+        </label>
+        <label>X (cm) <span class="req">*</span>
+          <input id="anc_x" type="number" required value="0" />
+        </label>
+        <label>Y (cm) <span class="req">*</span>
+          <input id="anc_y" type="number" required value="0" />
+        </label>
+        <label>Z (cm) <span class="req">*</span>
+          <input id="anc_z" type="number" required value="0" />
+        </label>
+      </div>
+      <div class="row">
+        <button class="btn primary" type="submit">Save Position</button>
+      </div>
+    </form>
+    <pre class="pre" id="anchors_form_out"></pre>
   </div>
-</section>
+
+  <div class="card">
+    <div class="card-title">Hinweis</div>
+    <div class="muted">
+      Phase-1 hat kein <code>GET /anchors</code> und kein Anchor-List Endpoint.
+      Aktuell kannst du Positionen setzen; Anzeige kommt in Phase-2 (Devices/Anchors List).
+    </div>
+  </div>
+</div>
+
+<div class="card" style="margin-top:15px;">
+  <div class="card-title">Anchor Liste</div>
+  <div class="row" style="margin-bottom:8px;">
+    <button class="btn" onclick="ltLoadAnchors()">Reload</button>
+  </div>
+  <div class="tablewrap">
+    <table class="tbl">
+      <thead>
+        <tr>
+          <th>MAC</th>
+          <th>Alias</th>
+          <th>Last Seen</th>
+          <th>X (cm)</th>
+          <th>Y (cm)</th>
+          <th>Z (cm)</th>
+        </tr>
+      </thead>
+      <tbody id="anchors_tbody"><tr><td colspan="6" class="muted">lade…</td></tr></tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+  ltRefreshFooterState();
+  ltLoadAnchors();
+});
+</script>
 {% endblock %}
