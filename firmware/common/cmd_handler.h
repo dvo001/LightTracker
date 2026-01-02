@@ -6,6 +6,7 @@
 class CmdHandler {
 public:
   int batch_period_ms = 100;
+  int heartbeat_ms = 5000;
 
   bool handle(const char* payload, PiMqttClient& mqtt) {
     StaticJsonDocument<512> doc;
@@ -20,6 +21,9 @@ public:
       if (strcmp(cmd, "apply_settings") == 0) {
         if (doc.containsKey("settings") && doc["settings"].containsKey("batch_period_ms")) {
           batch_period_ms = doc["settings"]["batch_period_ms"];
+        }
+        if (doc.containsKey("settings") && doc["settings"].containsKey("heartbeat_ms")) {
+          heartbeat_ms = doc["settings"]["heartbeat_ms"];
         }
         String ack = JsonPayloads::cmd_ack_payload(cmd_id, "ok");
         String topic = String("dev/") + DeviceIdentity::mac_nocolon() + "/cmd_ack";

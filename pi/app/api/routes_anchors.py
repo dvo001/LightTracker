@@ -71,5 +71,11 @@ def upsert_anchor(pos: AnchorPos):
         db.commit()
     finally:
         db.close()
+    try:
+        from app.core.state_manager import StateManager
+        from app.db.persistence import get_persistence
+        get_persistence().invalidate_calibrations(ts)
+        StateManager().set_state('SETUP')  # ensure live guarded
+    except Exception:
+        pass
     return {'ok': True, 'mac': pos.mac, 'position_cm': {'x': pos.x_cm, 'y': pos.y_cm, 'z': pos.z_cm}}
-

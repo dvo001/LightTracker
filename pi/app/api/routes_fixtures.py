@@ -85,4 +85,24 @@ def delete_fixture(fid: int):
     if not ok:
         raise HTTPException(status_code=404)
     return {"deleted": True}
+
+
+@router.post("/fixtures/{fid}/enable")
+def enable_fixture(fid: int):
+    p = get_persistence()
+    _assert_not_live(p)
+    ok = p.update_fixture(fid, {"enabled": 1})
+    if not ok:
+        raise HTTPException(status_code=404)
+    return {"ok": True}
+
+
+@router.post("/fixtures/{fid}/disable")
+def disable_fixture(fid: int):
+    p = get_persistence()
+    _assert_not_live(p)
+    ok = p.update_fixture(fid, {"enabled": 0})
+    if not ok:
+        raise HTTPException(status_code=404)
+    return {"ok": True}
 # /fixtures routes

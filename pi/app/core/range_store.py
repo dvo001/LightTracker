@@ -30,10 +30,16 @@ class RangeStore:
     def add_range_batch(self, anchor_mac:str, ts_ms:int, ranges:List[dict]):
         for r in ranges:
             tag = r.get('tag_mac')
-            dist = r.get('distance_mm')
-            if not tag or not dist:
+            # tolerate d_m or distance_mm
+            dist_mm = r.get('distance_mm')
+            if dist_mm is None and r.get('d_m') is not None:
+                try:
+                    dist_mm = float(r.get('d_m')) * 1000.0
+                except Exception:
+                    dist_mm = None
+            if not tag or dist_mm is None:
                 continue
-            sample = RangeSample(ts_ms=int(r.get('ts_ms', ts_ms)), distance_mm=float(dist), quality=r.get('quality'), rssi=r.get('rssi'))
+            sample = RangeSample(ts_ms=int(r.get('ts_ms', ts_ms)), distance_mm=float(dist_mm), quality=r.get('quality'), rssi=r.get('rssi'))
             self.add_sample(tag, anchor_mac, sample)
 
     def snapshot_tag(self, tag_mac:str):
