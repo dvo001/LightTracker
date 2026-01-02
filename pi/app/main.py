@@ -6,6 +6,7 @@ import os
 import threading
 import asyncio
 import json
+import sys
 
 from .db.migrations.runner import run_migrations
 from .api import router as api_router
@@ -19,19 +20,21 @@ app.mount('/static', StaticFiles(directory=os.path.join(BASE_DIR, 'web', 'static
 
 @app.on_event('startup')
 def startup():
+    loop = asyncio.get_event_loop()
+
     # Run migrations in a separate thread to avoid blocking startup in dev
     def _run():
         try:
             run_migrations()
-        except Exception:
-            pass
-    t = threading.Thread(target=_run)
-    t.daemon = True
+        except Exception as e:
+            print(f"[startup] migrations failed: {e}", file=sys.stderr)
+    t = threading.Thread(target=_run, daemon=True)
     t.start()
 
     # initialize state for websocket clients and calibration
     app.state.ws_clients = set()
     app.state.active_calibration = None
+    app.state.mqtt_ok = False
     # initialize tracking engine (lazy: may import paho later)
     try:
         from .core.tracking_engine import TrackingEngine
@@ -39,9 +42,10 @@ def startup():
         app.state.tracking_engine = te
         try:
             loop.create_task(te.run())
-        except Exception:
-            pass
-    except Exception:
+        except Exception as e:
+            print(f"[startup] tracking engine loop failed to start: {e}", file=sys.stderr)
+    except Exception as e:
+        print(f"[startup] tracking engine init failed: {e}", file=sys.stderr)
         app.state.tracking_engine = None
     # start mqtt client (if available) and wire to tracking_engine
     try:
@@ -50,13 +54,16 @@ def startup():
         app.state.mqtt_client = mc
         try:
             mc.start()
-        except Exception:
-            pass
-    except Exception:
+            app.state.mqtt_ok = mc.connected
+        except Exception as e:
+            print(f"[startup] mqtt start failed: {e}", file=sys.stderr)
+            app.state.mqtt_ok = False
+    except Exception as e:
+        print(f"[startup] mqtt init failed: {e}", file=sys.stderr)
         app.state.mqtt_client = None
+        app.state.mqtt_ok = False
 
     # start broadcaster task
-    loop = asyncio.get_event_loop()
     try:
         loop.create_task(_broadcaster())
     except RuntimeError:

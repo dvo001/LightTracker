@@ -14,6 +14,7 @@ class MQTTClientWrapper:
         self.broker_port = broker_port
         self.tracking_engine = tracking_engine
         self._client = None
+        self.connected = False
 
     def _on_connect(self, client, userdata, flags, rc):
         try:
@@ -40,6 +41,7 @@ class MQTTClientWrapper:
     def start(self):
         if mqtt is None:
             print('paho.mqtt not installed; mqtt client disabled')
+            self.connected = False
             return
         self._client = mqtt.Client()
         self._client.on_connect = self._on_connect
@@ -48,8 +50,10 @@ class MQTTClientWrapper:
             self._client.connect(self.broker_host, self.broker_port, 60)
             t = threading.Thread(target=self._client.loop_forever, daemon=True)
             t.start()
+            self.connected = True
         except Exception as e:
             print('mqtt connect failed', e)
+            self.connected = False
 
     def stop(self):
         try:
