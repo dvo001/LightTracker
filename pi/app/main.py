@@ -175,6 +175,13 @@ def ui_index(request: Request):
     return templates.TemplateResponse('index.html', {'request': request})
 
 
+@app.get('/ui', response_class=HTMLResponse)
+@app.get('/ui/', response_class=HTMLResponse)
+def ui_index_alias(request: Request):
+    # serve dashboard for /ui and /ui/ to align with nav link
+    return templates.TemplateResponse('index.html', {'request': request})
+
+
 @app.get('/ui/{page}', response_class=HTMLResponse)
 def ui_page(page: str, request: Request):
     # safe mapping for a handful of pages
