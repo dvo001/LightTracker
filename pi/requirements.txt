@@ -7,3 +7,4 @@ sqlite-utils
 pytest
 pyserial
 httpx
+python-multipart

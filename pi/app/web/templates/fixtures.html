@@ -1,41 +1,35 @@
 {% extends "base.html" %}
 {% block content %}
-<h1>Fixtures</h1>
+<h1>Aktive Fixtures</h1>
 
 <div class="row" style="margin-bottom: 10px;">
   <a class="btn primary" href="/ui/fixtures/new">+ New Fixture</a>
-  <button class="btn" onclick="ltLoadFixturesTable()">Reload</button>
+  <button class="btn" onclick="ltOflLoadActiveTable()">Reload</button>
 </div>
 
 <div class="card">
-  <div class="card-title">Fixture Liste</div>
+  <div class="card-title">Aktive Fixtures (OFL Patches)</div>
   <div class="tablewrap">
-    <table class="tbl" style="min-width: 980px;">
+    <table class="tbl" style="min-width: 900px;">
       <thead>
-        <tr>
-          <th>ID</th>
-          <th>Enabled</th>
-          <th>Name</th>
-          <th>Profile</th>
-          <th>Uni</th>
-          <th>Base Addr</th>
-          <th>Pos (cm)</th>
-          <th>Actions</th>
-        </tr>
+        <tr><th>ID</th><th>Name</th><th>Fixture</th><th>Mode</th><th>Uni</th><th>Addr</th><th>Test</th><th>Edit</th></tr>
       </thead>
-      <tbody id="fx_tbody">
+      <tbody id="ofl_active_tbody">
         <tr><td colspan="8" class="muted">lade…</td></tr>
       </tbody>
     </table>
   </div>
+  <div class="muted" style="margin-top:8px;">Neue Fixtures via Library + Overrides auf der New Fixture Seite hinzufügen.</div>
+  <div class="muted" style="margin-top:8px;">Neue Fixtures via Library + Overrides auf der New Fixture Seite hinzufügen.</div>
 </div>
+
 {% endblock %}
 
 {% block scripts %}
 <script>
 document.addEventListener("DOMContentLoaded", () => {
   ltRefreshFooterState();
-  ltLoadFixturesTable();
+  ltOflLoadActiveTable();
 });
 </script>
 {% endblock %}

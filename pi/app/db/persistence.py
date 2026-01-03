@@ -134,6 +134,103 @@ class Persistence:
         finally:
             db.close()
 
+    def upsert_fixture_profile(self, profile_key: str, profile_json: str) -> None:
+        db = connect_db()
+        try:
+            db.execute(
+                "INSERT INTO fixture_profiles(profile_key, profile_json) VALUES(?, ?) ON CONFLICT(profile_key) DO UPDATE SET profile_json=excluded.profile_json",
+                (profile_key, profile_json),
+            )
+            db.commit()
+        finally:
+            db.close()
+
+    # OFL fixtures library
+    def upsert_ofl_fixture(self, manufacturer: str, model: str, ofl_schema: str, ofl_json: str, content_hash: str) -> int:
+        db = connect_db()
+        try:
+            ts = int(__import__("time").time() * 1000)
+            cur = db.execute(
+                """INSERT INTO ofl_fixtures(manufacturer, model, ofl_schema, ofl_json, content_hash, created_at_ms, updated_at_ms)
+                   VALUES(?,?,?,?,?,?,?)
+                   ON CONFLICT(content_hash) DO UPDATE SET
+                     manufacturer=excluded.manufacturer,
+                     model=excluded.model,
+                     ofl_schema=excluded.ofl_schema,
+                     ofl_json=excluded.ofl_json,
+                     updated_at_ms=excluded.updated_at_ms""",
+                (manufacturer, model, ofl_schema, ofl_json, content_hash, ts, ts),
+            )
+            db.commit()
+            if cur.lastrowid:
+                return cur.lastrowid
+            row = db.execute("SELECT id FROM ofl_fixtures WHERE content_hash=?", (content_hash,)).fetchone()
+            return row["id"] if row else None
+        finally:
+            db.close()
+
+    def find_ofl_fixture_by_hash(self, content_hash: str):
+        db = connect_db()
+        try:
+            row = db.execute("SELECT id, manufacturer, model, ofl_schema, ofl_json, content_hash, created_at_ms, updated_at_ms FROM ofl_fixtures WHERE content_hash=?", (content_hash,)).fetchone()
+            return dict(row) if row else None
+        finally:
+            db.close()
+
+    def get_ofl_fixture(self, fid: int):
+        db = connect_db()
+        try:
+            row = db.execute("SELECT id, manufacturer, model, ofl_schema, ofl_json, content_hash, created_at_ms, updated_at_ms FROM ofl_fixtures WHERE id=?", (fid,)).fetchone()
+            return dict(row) if row else None
+        finally:
+            db.close()
+
+    def search_ofl_fixtures(self, q: str = None):
+        db = connect_db()
+        try:
+            if q:
+                ql = f"%{q.lower()}%"
+                rows = db.execute(
+                    "SELECT id, manufacturer, model, ofl_schema, ofl_json, content_hash, created_at_ms, updated_at_ms FROM ofl_fixtures WHERE lower(manufacturer) LIKE ? OR lower(model) LIKE ? ORDER BY manufacturer, model",
+                    (ql, ql),
+                ).fetchall()
+            else:
+                rows = db.execute("SELECT id, manufacturer, model, ofl_schema, ofl_json, content_hash, created_at_ms, updated_at_ms FROM ofl_fixtures ORDER BY manufacturer, model").fetchall()
+            return [dict(r) for r in rows]
+        finally:
+            db.close()
+
+    # Patched fixtures
+    def create_patched_fixture(self, fixture_id: int, name: str, mode_name: str, universe: int, dmx_address: int, overrides_json: str = None) -> int:
+        db = connect_db()
+        try:
+            ts = int(__import__("time").time() * 1000)
+            cur = db.execute(
+                """INSERT INTO patched_fixtures(fixture_id, name, mode_name, universe, dmx_address, overrides_json, created_at_ms, updated_at_ms)
+                   VALUES(?,?,?,?,?,?,?,?)""",
+                (fixture_id, name, mode_name, universe, dmx_address, overrides_json, ts, ts),
+            )
+            db.commit()
+            return cur.lastrowid
+        finally:
+            db.close()
+
+    def list_patched_fixtures(self):
+        db = connect_db()
+        try:
+            rows = db.execute("SELECT id, fixture_id, name, mode_name, universe, dmx_address, overrides_json, created_at_ms, updated_at_ms FROM patched_fixtures ORDER BY id DESC").fetchall()
+            return [dict(r) for r in rows]
+        finally:
+            db.close()
+
+    def get_patched_fixture(self, pid: int):
+        db = connect_db()
+        try:
+            row = db.execute("SELECT id, fixture_id, name, mode_name, universe, dmx_address, overrides_json, created_at_ms, updated_at_ms FROM patched_fixtures WHERE id=?", (pid,)).fetchone()
+            return dict(row) if row else None
+        finally:
+            db.close()
+
     # Fixtures
     def list_fixtures(self) -> List[Dict[str, Any]]:
         db = connect_db()

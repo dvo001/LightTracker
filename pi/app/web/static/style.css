@@ -46,3 +46,4 @@ input:focus{border-color:rgba(88,166,255,.6)}
 .kv_in{width:100%}
 select{background:#0f141b;border:1px solid var(--line);border-radius:12px;padding:10px;color:var(--text);outline:none}
 select:focus{border-color:rgba(88,166,255,.6)}
+input[type="file"]{padding:6px 0;color:var(--text)}

@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Fixture Library (OFL)</h1>
+
+<div class="card">
+  <div class="card-title">OFL JSON Upload</div>
+  <form onsubmit="ltOflUpload(event)">
+    <div class="row">
+      <input type="file" id="ofl_file" accept="application/json,.json,.zip" required />
+      <input type="text" id="ofl_mfr" placeholder="Hersteller (optional falls im JSON)" />
+      <input type="text" id="ofl_model" placeholder="Modell (optional falls im JSON)" />
+      <button class="btn primary" type="submit">Upload</button>
+    </div>
+  </form>
+  <pre class="pre" id="ofl_upload_out"></pre>
+</div>
+
+<div class="card" style="margin-top:14px;">
+  <div class="card-title">Library</div>
+  <div class="tablewrap">
+    <table class="tbl" style="min-width:820px;">
+      <thead>
+        <tr><th>ID</th><th>Hersteller</th><th>Modell</th><th>Modes</th></tr>
+      </thead>
+      <tbody id="ofl_library_tbody">
+        <tr><td colspan="4" class="muted">lade…</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="muted" style="margin-top:8px;">User-spezifische Einstellungen (Universe/Adresse/Name) werden beim Anlegen eines Fixtures gesetzt.</div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+  ltRefreshFooterState();
+  ltOflLoadFixtures();
+});
+</script>
+{% endblock %}

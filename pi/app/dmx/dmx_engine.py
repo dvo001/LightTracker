@@ -85,6 +85,23 @@ class DmxEngine:
         self.test_target_cm = None
         self.test_until_ms = None
 
+    def send_custom_frame(self, universe: int, channel_values: Dict[int, int]):
+        p = get_persistence()
+        if self._driver_managed:
+            self._ensure_driver(p)
+        if not self.driver:
+            return
+        frame = bytearray(513)
+        frame[0] = 0x00
+        for ch, val in channel_values.items():
+            if ch < 1 or ch > 512:
+                continue
+            frame[ch] = max(0, min(255, int(val)))
+        try:
+            self.driver.send_frame(bytes(frame), universe=universe)
+        except Exception as e:
+            p.append_event("ERROR", "dmx", "send_custom_failed", ref=str(universe), details_json=str(e))
+
     def _ensure_driver(self, persistence):
         def _as_int(val, default):
             try:

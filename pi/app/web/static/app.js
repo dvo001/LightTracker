@@ -7,6 +7,7 @@ const LT_API = {
   anchorByMac: (mac) => `/api/v1/anchors/${encodeURIComponent(mac)}`,
 
   fixtureProfiles: "/api/v1/fixture-profiles",
+  fixtureProfileImportSsl2: "/api/v1/fixture-profiles/import-ssl2",
   fixtures: "/api/v1/fixtures",
   fixtureById: (id) => `/api/v1/fixtures/${id}`,
 
@@ -21,6 +22,12 @@ const LT_API = {
   events: "/api/v1/events",
   settings: "/api/v1/settings",
   dmxConfig: "/api/v1/dmx/config",
+  oflFixtures: "/api/v1/ofl/fixtures",
+  oflImport: "/api/v1/ofl/fixtures/import",
+  oflPatchedFixtures: "/api/v1/ofl/patched-fixtures",
+  oflPatchedFixture: (id) => `/api/v1/ofl/patched-fixtures/${id}`,
+  oflTestOn: (id) => `/api/v1/ofl/patched-fixtures/${id}/test/light-on`,
+  oflTestOff: (id) => `/api/v1/ofl/patched-fixtures/${id}/test/light-off`,
 };
 
 function $(id){ return document.getElementById(id); }
@@ -541,6 +548,187 @@ async function ltSaveSettings(){
   out.textContent = JSON.stringify({ saved: results.length, results }, null, 2);
 }
 
+// ---------------- OFL Fixture Library ----------------
+let OFL_FIX_CACHE = [];
+let OFL_PATCH_CACHE = [];
+
+async function ltOflUpload(ev){
+  ev.preventDefault();
+  if (!await ltAssertNotLive("OFL Fixture Upload")) return;
+  const fileInput = $("ofl_file");
+  if (!fileInput || !fileInput.files.length){
+    alert("Bitte JSON wählen.");
+    return;
+  }
+  const out = $("ofl_upload_out");
+  if (out) out.textContent = "uploading…";
+
+  const form = new FormData();
+  form.append("file", fileInput.files[0]);
+  const mfr = $("ofl_mfr")?.value.trim();
+  const mdl = $("ofl_model")?.value.trim();
+  if (mfr) form.append("manufacturer", mfr);
+  if (mdl) form.append("model", mdl);
+
+  try{
+    const r = await fetch(LT_API.oflImport, { method: "POST", body: form });
+    let j = null;
+    try { j = await r.json(); } catch {}
+    if (out) out.textContent = JSON.stringify(j ?? { status: r.status }, null, 2);
+    if (r.ok){
+      ltOflLoadFixtures();
+      ltOflLoadPatches();
+    }
+  }catch(e){
+    if (out) out.textContent = String(e);
+  }
+}
+
+async function ltOflLoadFixtures(){
+  const sel = $("ofl_sel_fixture") || $("patch_fixture");
+  const table = $("ofl_library_tbody");
+  if (sel) sel.innerHTML = `<option>lade…</option>`;
+  if (table) table.innerHTML = `<tr><td colspan="4" class="muted">lade…</td></tr>`;
+  const r = await ltFetchJson(LT_API.oflFixtures);
+  if (!r.ok || !r.json){
+    if (sel) sel.innerHTML = `<option>Fehler</option>`;
+    if (table) table.innerHTML = `<tr><td colspan="4">Fehler: ${escapeHtml(JSON.stringify(r.json ?? r))}</td></tr>`;
+    return;
+  }
+  OFL_FIX_CACHE = r.json.fixtures || [];
+  if (sel){
+    if (!OFL_FIX_CACHE.length){
+      sel.innerHTML = `<option value="">Keine Fixtures</option>`;
+    }else{
+      sel.innerHTML = OFL_FIX_CACHE.map(f => `<option value="${f.id}">${escapeHtml(f.manufacturer)} – ${escapeHtml(f.model)}</option>`).join("\n");
+    }
+  }
+  ltOflOnFixtureSelect();
+  if (table){
+    if (!OFL_FIX_CACHE.length){
+      table.innerHTML = `<tr><td colspan="4" class="muted">Keine Fixtures.</td></tr>`;
+    }else{
+      table.innerHTML = OFL_FIX_CACHE.map(f => {
+        const modes = (f.modes || []).map(m => `${escapeHtml(m.name)} (${m.channels}ch)`).join(", ");
+        return `<tr><td>${f.id}</td><td>${escapeHtml(f.manufacturer)}</td><td>${escapeHtml(f.model)}</td><td>${modes || "—"}</td></tr>`;
+      }).join("\n");
+    }
+  }
+}
+
+function ltOflOnFixtureSelect(){
+  const sel = $("ofl_sel_fixture") || $("patch_fixture");
+  const modeSel = $("ofl_sel_mode") || $("patch_mode");
+  if (!modeSel) return;
+  const fid = Number(sel?.value || 0);
+  const fx = OFL_FIX_CACHE.find(f => f.id === fid);
+  const modes = fx?.modes || [];
+  modeSel.innerHTML = modes.length ? modes.map(m => `<option value="${m.name}">${escapeHtml(m.name)} (${m.channels}ch)</option>`).join("\n") : `<option value="">Keine Modes</option>`;
+  const nameField = $("ofl_name") || $("patch_name");
+  if (nameField && fx && !nameField.value){
+    nameField.value = `${fx.manufacturer} ${fx.model}`.trim();
+  }
+}
+
+async function ltOflCreatePatch(){
+  if (!await ltAssertNotLive("Patch Fixture")) return;
+  const out = $("ofl_patch_out");
+  if (out) out.textContent = "saving…";
+  const payload = {
+    fixture_id: Number(($("ofl_sel_fixture") || $("patch_fixture"))?.value || 0),
+    name: $("ofl_name")?.value || $("patch_name")?.value || "",
+    mode_name: $("ofl_sel_mode")?.value || $("patch_mode")?.value || "",
+    universe: Number($("ofl_uni")?.value || $("patch_uni")?.value || 0),
+    dmx_address: Number($("ofl_addr")?.value || $("patch_addr")?.value || 1),
+  };
+  const r = await ltFetchJson(LT_API.oflPatchedFixtures, { method: "POST", body: JSON.stringify(payload) });
+  if (out) out.textContent = JSON.stringify(r.json ?? r, null, 2);
+  if (r.ok){
+    ltOflLoadActiveTable();
+  }
+}
+
+async function ltOflLoadActiveTable(){
+  const body = $("ofl_active_tbody");
+  if (!body) return;
+  body.innerHTML = `<tr><td colspan="8" class="muted">lade…</td></tr>`;
+  const r = await ltFetchJson(LT_API.oflPatchedFixtures);
+  if (!r.ok || !r.json){
+    body.innerHTML = `<tr><td colspan="8">Fehler: ${escapeHtml(JSON.stringify(r.json ?? r))}</td></tr>`;
+    return;
+  }
+  const list = r.json.patched_fixtures || [];
+  OFL_PATCH_CACHE = list;
+  if (!list.length){
+    body.innerHTML = `<tr><td colspan="8" class="muted">Keine aktiven Fixtures.</td></tr>`;
+    return;
+  }
+  body.innerHTML = list.map(p => {
+    const fx = p.fixture || {};
+    return `<tr>
+      <td>${p.id}</td>
+      <td>${escapeHtml(p.name)}</td>
+      <td>${escapeHtml(fx.manufacturer || '?')} – ${escapeHtml(fx.model || '?')}</td>
+      <td>${escapeHtml(p.mode_name)}</td>
+      <td>${escapeHtml(String(p.universe))}</td>
+      <td>${escapeHtml(String(p.dmx_address))}</td>
+      <td class="row"><button class="btn" onclick="ltOflTest(${p.id}, true)">Light ON</button><button class="btn" onclick="ltOflTest(${p.id}, false)">Light OFF</button></td>
+      <td><a class="btn" href="/ui/patch/${p.id}/edit">Edit</a></td>
+    </tr>`;
+  }).join("\n");
+}
+
+async function ltOflTest(id, on){
+  const out = $("ofl_patch_out");
+  if (out) out.textContent = "testing…";
+  const url = on ? LT_API.oflTestOn(id) : LT_API.oflTestOff(id);
+  const r = await ltFetchJson(url, { method: "POST" });
+  if (out) out.textContent = JSON.stringify(r.json ?? r, null, 2);
+}
+
+async function ltOflLoadPatchForEdit(id){
+  const out = $("ofl_patch_out");
+  if (out) out.textContent = "lade Patch…";
+  const r = await ltFetchJson(LT_API.oflPatchedFixture(id));
+  if (!r.ok || !r.json){
+    if (out) out.textContent = JSON.stringify(r.json ?? r, null, 2);
+    return;
+  }
+  const patch = r.json.patch;
+  if (out) out.textContent = "";
+  // ensure fixtures loaded
+  if (!OFL_FIX_CACHE.length){
+    await ltOflLoadFixtures();
+  }
+  const selFx = $("ofl_sel_fixture");
+  const selMode = $("ofl_sel_mode");
+  if (selFx){
+    selFx.value = patch.fixture_id;
+  }
+  ltOflOnFixtureSelect();
+  if (selMode){
+    selMode.value = patch.mode_name;
+  }
+  if ($("ofl_name")) $("ofl_name").value = patch.name || "";
+  if ($("ofl_uni")) $("ofl_uni").value = patch.universe;
+  if ($("ofl_addr")) $("ofl_addr").value = patch.dmx_address;
+}
+
+async function ltOflUpdatePatch(id){
+  if (!await ltAssertNotLive("Patch Update")) return;
+  const out = $("ofl_patch_out");
+  if (out) out.textContent = "saving…";
+  const payload = {
+    fixture_id: Number($("ofl_sel_fixture")?.value || 0),
+    name: $("ofl_name")?.value || "",
+    mode_name: $("ofl_sel_mode")?.value || "",
+    universe: Number($("ofl_uni")?.value || 0),
+    dmx_address: Number($("ofl_addr")?.value || 1),
+  };
+  const r = await ltFetchJson(LT_API.oflPatchedFixture(id), { method: "PUT", body: JSON.stringify(payload) });
+  if (out) out.textContent = JSON.stringify(r.json ?? r, null, 2);
+}
+
 // ---------------- DMX / Artnet Config ----------------
 async function ltLoadDmxConfig(){
   const out = $("dmx_cfg_out");
@@ -614,3 +802,10 @@ window.ltSaveSettings = ltSaveSettings;
 window.ltAddSettingRow = ltAddSettingRow;
 window.ltLoadDmxConfig = ltLoadDmxConfig;
 window.ltSaveDmxConfig = ltSaveDmxConfig;
+window.ltOflUpload = ltOflUpload;
+window.ltOflLoadFixtures = ltOflLoadFixtures;
+window.ltOflOnFixtureSelect = ltOflOnFixtureSelect;
+window.ltOflCreatePatch = ltOflCreatePatch;
+window.ltOflTest = ltOflTest;
+window.ltOflLoadPatchForEdit = ltOflLoadPatchForEdit;
+window.ltOflUpdatePatch = ltOflUpdatePatch;

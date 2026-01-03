@@ -185,7 +185,37 @@ def ui_index_alias(request: Request):
 @app.get('/ui/{page}', response_class=HTMLResponse)
 def ui_page(page: str, request: Request):
     # safe mapping for a handful of pages
-    allowed = ['anchors','fixtures','live','calibration','settings','logs','index']
-    if page not in allowed:
+    mapping = {
+        'anchors': 'anchors.html',
+        'fixtures': 'fixtures.html',
+        'live': 'live.html',
+        'calibration': 'calibration.html',
+        'settings': 'settings.html',
+        'logs': 'logs.html',
+        'index': 'index.html',
+        'library': 'ofl_library.html',
+    }
+    tpl = mapping.get(page)
+    if not tpl:
         return templates.TemplateResponse('index.html', {'request': request})
-    return templates.TemplateResponse(f"{page}.html", {'request': request})
+    return templates.TemplateResponse(tpl, {'request': request})
+
+
+@app.get('/ui/fixtures/new', response_class=HTMLResponse)
+def ui_fixture_new(request: Request):
+    return templates.TemplateResponse('fixture_new.html', {'request': request})
+
+
+@app.get('/ui/fixtures/{fixture_id}/edit', response_class=HTMLResponse)
+def ui_fixture_edit(fixture_id: int, request: Request):
+    return templates.TemplateResponse('fixture_edit.html', {'request': request, 'fixture_id': fixture_id})
+
+
+@app.get('/ui/library', response_class=HTMLResponse)
+def ui_library(request: Request):
+    return templates.TemplateResponse('ofl_library.html', {'request': request})
+
+
+@app.get('/ui/patch/{patch_id}/edit', response_class=HTMLResponse)
+def ui_patch_edit(patch_id: int, request: Request):
+    return templates.TemplateResponse('ofl_patch_edit.html', {'request': request, 'patch_id': patch_id})

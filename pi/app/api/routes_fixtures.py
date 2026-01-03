@@ -1,6 +1,9 @@
-from fastapi import APIRouter, HTTPException
+import json
+from fastapi import APIRouter, HTTPException, UploadFile, File, Form
 from pydantic import BaseModel, Field
 from typing import Optional
+
+from app.dmx.ssl2_import import parse_ssl2_fixture
 
 from app.db.persistence import get_persistence
 
@@ -29,6 +32,25 @@ class FixtureIn(BaseModel):
 def list_profiles():
     p = get_persistence()
     return {"profiles": p.list_fixture_profiles()}
+
+@router.post("/fixture-profiles/import-ssl2")
+async def import_fixture_profile_ssl2(file: UploadFile = File(...), profile_key: Optional[str] = Form(None)):
+    p = get_persistence()
+    _assert_not_live(p)
+    data = await file.read()
+    if not data:
+        raise HTTPException(status_code=400, detail="empty file")
+    try:
+        derived_key, profile = parse_ssl2_fixture(data, filename=file.filename or "")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"could not parse ssl2: {e}")
+
+    key = profile_key or derived_key
+    try:
+        p.upsert_fixture_profile(key, json.dumps(profile))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"failed to store profile: {e}")
+    return {"ok": True, "profile_key": key, "profile": profile}
 
 
 @router.get("/fixtures")

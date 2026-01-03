@@ -3,7 +3,33 @@
 <h1>New Fixture</h1>
 
 <div class="card">
-  <div class="card-title">Fixture Definition</div>
+  <div class="card-title">Aus Library übernehmen</div>
+  <div class="formgrid">
+    <label>Library Fixture
+      <select id="ofl_sel_fixture" onchange="ltOflOnFixtureSelect()"></select>
+    </label>
+    <label>Mode
+      <select id="ofl_sel_mode"></select>
+    </label>
+    <label>Name
+      <input id="ofl_name" placeholder="Front MH" />
+    </label>
+    <label>Universe
+      <input id="ofl_uni" type="number" min="0" value="0" />
+    </label>
+    <label>DMX Address
+      <input id="ofl_addr" type="number" min="1" max="512" value="1" />
+    </label>
+  </div>
+  <div class="row">
+    <button class="btn primary" onclick="ltOflCreatePatch()">Aktiven Fixture anlegen</button>
+    <a class="btn" href="/ui/fixtures">Zurück</a>
+  </div>
+  <pre class="pre" id="ofl_patch_out"></pre>
+</div>
+
+<div class="card">
+  <div class="card-title">Legacy Fixture Definition</div>
   <form onsubmit="ltCreateFixture(event)">
     <div class="formgrid">
       <label>Name <span class="req">*</span>
@@ -47,6 +73,7 @@
 <script>
 document.addEventListener("DOMContentLoaded", () => {
   ltRefreshFooterState();
+  ltOflLoadFixtures();
 });
 </script>
 {% endblock %}

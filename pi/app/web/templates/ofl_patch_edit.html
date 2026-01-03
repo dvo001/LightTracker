@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Patch Edit</h1>
+<div class="card">
+  <div class="card-title">Aktiven Fixture bearbeiten</div>
+  <div class="formgrid">
+    <label>Library Fixture
+      <select id="ofl_sel_fixture" onchange="ltOflOnFixtureSelect()"></select>
+    </label>
+    <label>Mode
+      <select id="ofl_sel_mode"></select>
+    </label>
+    <label>Name
+      <input id="ofl_name" />
+    </label>
+    <label>Universe
+      <input id="ofl_uni" type="number" min="0" />
+    </label>
+    <label>DMX Address
+      <input id="ofl_addr" type="number" min="1" max="512" />
+    </label>
+  </div>
+  <div class="row">
+    <button class="btn primary" onclick="ltOflUpdatePatch({{ patch_id }})">Save</button>
+    <a class="btn" href="/ui/fixtures">Back</a>
+  </div>
+  <pre class="pre" id="ofl_patch_out"></pre>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+  ltRefreshFooterState();
+  ltOflLoadFixtures();
+  ltOflLoadPatchForEdit({{ patch_id }});
+});
+</script>
+{% endblock %}
