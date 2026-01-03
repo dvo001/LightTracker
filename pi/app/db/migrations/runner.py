@@ -3,7 +3,7 @@ import sqlite3
 from glob import glob
 
 MIGRATIONS_DIR = os.path.dirname(__file__)
-DB_DEFAULT = os.path.normpath(os.path.join(os.path.dirname(MIGRATIONS_DIR), '..', '..', 'data', 'lighttracker.db'))
+DB_DEFAULT = os.path.normpath(os.path.join(MIGRATIONS_DIR, '..', '..', 'data', 'lighttracker.db'))
 
 def get_db_path():
     return os.environ.get('LT_DB_PATH', DB_DEFAULT)

@@ -20,6 +20,7 @@ const LT_API = {
 
   events: "/api/v1/events",
   settings: "/api/v1/settings",
+  dmxConfig: "/api/v1/dmx/config",
 };
 
 function $(id){ return document.getElementById(id); }
@@ -540,6 +541,51 @@ async function ltSaveSettings(){
   out.textContent = JSON.stringify({ saved: results.length, results }, null, 2);
 }
 
+// ---------------- DMX / Artnet Config ----------------
+async function ltLoadDmxConfig(){
+  const out = $("dmx_cfg_out");
+  if (out) out.textContent = "lade…";
+
+  const modeEl = $("dmx_mode");
+  const uartEl = $("dmx_uart_device");
+  const tgtEl = $("artnet_target");
+  const portEl = $("artnet_port");
+  const uniEl = $("artnet_universe");
+
+  const r = await ltFetchJson(LT_API.dmxConfig);
+  if (out) out.textContent = JSON.stringify(r.json ?? r, null, 2);
+  if (!r.ok || !r.json) return;
+
+  const cfg = r.json.config || {};
+  if (modeEl) modeEl.value = cfg.mode || "uart";
+  if (uartEl) uartEl.value = cfg.uart_device || "/dev/serial0";
+  if (tgtEl) tgtEl.value = cfg.artnet_target || "255.255.255.255";
+  if (portEl) portEl.value = cfg.artnet_port ?? 6454;
+  if (uniEl) uniEl.value = cfg.artnet_universe ?? 0;
+}
+
+async function ltSaveDmxConfig(){
+  if (!await ltAssertNotLive("DMX/Artnet Config speichern")) return;
+  const out = $("dmx_cfg_out");
+  if (out) out.textContent = "saving…";
+
+  const asNumberOrNull = (val, fallback) => {
+    const n = Number(val);
+    return Number.isFinite(n) ? n : fallback;
+  };
+
+  const payload = {
+    mode: $("dmx_mode")?.value || "uart",
+    uart_device: $("dmx_uart_device")?.value || undefined,
+    artnet_target: $("artnet_target")?.value || undefined,
+    artnet_port: asNumberOrNull($("artnet_port")?.value, 6454),
+    artnet_universe: asNumberOrNull($("artnet_universe")?.value, 0),
+  };
+
+  const r = await ltFetchJson(LT_API.dmxConfig, { method: "PUT", body: JSON.stringify(payload) });
+  if (out) out.textContent = JSON.stringify(r.json ?? r, null, 2);
+}
+
 // Expose to window
 window.ltRefreshFooterState = ltRefreshFooterState;
 window.ltRefreshDashboard = ltRefreshDashboard;
@@ -566,3 +612,5 @@ window.ltLoadEvents = ltLoadEvents;
 window.ltLoadSettings = ltLoadSettings;
 window.ltSaveSettings = ltSaveSettings;
 window.ltAddSettingRow = ltAddSettingRow;
+window.ltLoadDmxConfig = ltLoadDmxConfig;
+window.ltSaveDmxConfig = ltSaveDmxConfig;

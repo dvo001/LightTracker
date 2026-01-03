@@ -17,7 +17,7 @@ class UartRs485Driver:
             raise RuntimeError("pyserial not installed")
         self.ser = serial.Serial(self.device, baudrate=250000, bytesize=8, parity="N", stopbits=2)
 
-    def send_frame(self, frame: bytes):
+    def send_frame(self, frame: bytes, universe=None):
         if not self.ser:
             self.init()
         # DMX break + MAB best-effort

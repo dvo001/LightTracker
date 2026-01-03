@@ -4,25 +4,34 @@
 
 <div class="grid2">
   <div class="card">
-    <div class="card-title">Settings (Key/Value)</div>
+    <div class="card-title">DMX Ausgabe / Artnet</div>
+    <div class="formgrid" style="margin-top:8px;">
+      <label>Modus
+        <select id="dmx_mode">
+          <option value="uart">UART / RS485 (DMX512)</option>
+          <option value="artnet">Artnet (UDP)</option>
+          <option value="off">Aus</option>
+        </select>
+      </label>
+      <label>UART Device
+        <input id="dmx_uart_device" placeholder="/dev/serial0" />
+      </label>
+      <label>Artnet Target IP
+        <input id="artnet_target" placeholder="255.255.255.255" />
+      </label>
+      <label>Artnet Port
+        <input id="artnet_port" type="number" min="1" max="65535" placeholder="6454" />
+      </label>
+      <label>Artnet Universe
+        <input id="artnet_universe" type="number" min="0" max="32767" placeholder="0" />
+      </label>
+    </div>
     <div class="row">
-      <button class="btn" onclick="ltLoadSettings()">Reload</button>
-      <button class="btn" onclick="ltAddSettingRow()">+ Row</button>
-      <button class="btn primary" onclick="ltSaveSettings()">Save All</button>
+      <button class="btn" onclick="ltLoadDmxConfig()">Reload</button>
+      <button class="btn primary" onclick="ltSaveDmxConfig()">Speichern</button>
     </div>
-
-    <div class="tablewrap" style="margin-top:12px;">
-      <table class="tbl" style="min-width: 760px;">
-        <thead>
-          <tr><th>Key</th><th>Value</th><th>Actions</th></tr>
-        </thead>
-        <tbody id="settings_tbody">
-          <tr><td colspan="3" class="muted">lade…</td></tr>
-        </tbody>
-      </table>
-    </div>
-
-    <pre id="settings_out" class="pre" style="margin-top:12px;"></pre>
+    <div class="muted" style="margin-top:8px;">Artnet sendet nur aktiv bei LIVE/Test und nutzt Fixture-Universes. UART bleibt Standard falls keine Settings gesetzt sind.</div>
+    <pre id="dmx_cfg_out" class="pre"></pre>
   </div>
 
   <div class="card">
@@ -32,9 +41,33 @@
       <li><code>tracking.tag_mac</code> = Tag MAC für Calibration/Live</li>
       <li><code>anchors.required</code> = Mindestanzahl Anchors</li>
       <li><code>dmx.uart_device</code> = z.B. <code>/dev/ttyUSB0</code></li>
+      <li><code>dmx.output_mode</code> = <code>uart</code> | <code>artnet</code> | <code>off</code></li>
+      <li><code>artnet.target_ip</code>, <code>artnet.port</code>, <code>artnet.universe</code></li>
       <li><code>mqtt.host</code>, <code>mqtt.port</code></li>
     </ul>
   </div>
+</div>
+
+<div class="card" style="margin-top:14px;">
+  <div class="card-title">Settings (Key/Value)</div>
+  <div class="row">
+    <button class="btn" onclick="ltLoadSettings()">Reload</button>
+    <button class="btn" onclick="ltAddSettingRow()">+ Row</button>
+    <button class="btn primary" onclick="ltSaveSettings()">Save All</button>
+  </div>
+
+  <div class="tablewrap" style="margin-top:12px;">
+    <table class="tbl" style="min-width: 760px;">
+      <thead>
+        <tr><th>Key</th><th>Value</th><th>Actions</th></tr>
+      </thead>
+      <tbody id="settings_tbody">
+        <tr><td colspan="3" class="muted">lade…</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <pre id="settings_out" class="pre" style="margin-top:12px;"></pre>
 </div>
 {% endblock %}
 
@@ -42,6 +75,7 @@
 <script>
 document.addEventListener("DOMContentLoaded", () => {
   ltRefreshFooterState();
+  ltLoadDmxConfig();
   ltLoadSettings();
 });
 </script>

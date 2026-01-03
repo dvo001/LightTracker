@@ -1,17 +1,19 @@
 from app.dmx.dmx_engine import DmxEngine
 from app.dmx.uart_rs485_driver import UartRs485Driver
 from app.db.persistence import get_persistence
+from app.db.migrations.runner import run_migrations
 
 
 class DummyDriver(UartRs485Driver):
     def __init__(self):
         self.sent = []
 
-    def send_frame(self, frame: bytes):
-        self.sent.append(frame)
+    def send_frame(self, frame: bytes, universe=None):
+        self.sent.append((universe, frame))
 
 
 def test_dmx_engine_smoke(monkeypatch):
+    run_migrations()
     drv = DummyDriver()
     class TE:
         latest_position = {"T1": {"state": "TRACKING", "position_cm": {"x": 50, "y": 50, "z": 50}}}

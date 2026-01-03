@@ -27,8 +27,10 @@ public:
         int p = line.indexOf("TAG:");
         int q = line.indexOf("D:");
         if (p >= 0 && q >= 0) {
-          String tag = line.substring(p+4, q).trim();
-          String d = line.substring(q+2).trim();
+          String tag = line.substring(p + 4, q);
+          tag.trim();
+          String d = line.substring(q + 2);
+          d.trim();
           float dv = d.toFloat();
           if (on_range) on_range(tag, dv);
         } else {
