@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Tags</h1>
+
+<div class="card">
+  <div class="row" style="justify-content: space-between; align-items: center;">
+    <div>
+      <button class="btn" onclick="ltLoadTags()">Reload</button>
+    </div>
+    <div class="row">
+      <input id="tag_filter_mac" placeholder="Filter MAC/Alias" />
+      <button class="btn" onclick="ltLoadTags()">Filter</button>
+    </div>
+  </div>
+
+  <div class="tablewrap" style="margin-top:12px;">
+    <table class="tbl" style="min-width: 720px;">
+      <thead>
+        <tr><th>MAC</th><th>Alias</th><th>Status</th><th>Last Seen</th><th>Actions</th></tr>
+      </thead>
+      <tbody id="tags_tbody">
+        <tr><td colspan="5" class="muted">lade…</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card" style="margin-top:16px;">
+  <div class="card-title">Tag konfigurieren</div>
+  <div class="formgrid" style="margin-top:8px;">
+    <label>MAC
+      <input id="tag_cfg_mac" placeholder="AA:BB:CC:DD:EE:FF" />
+    </label>
+    <label>Alias
+      <input id="tag_cfg_alias" placeholder="z.B. Tag 1" />
+    </label>
+  </div>
+  <div class="row">
+    <button class="btn primary" onclick="ltTagsSendConfig(event)">An Tag senden</button>
+  </div>
+  <div class="muted" style="margin-top:8px;">Verwendet zentrale WiFi/MQTT Defaults (Settings).</div>
+  <pre id="tag_cfg_out" class="pre"></pre>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener("DOMContentLoaded", () => {
+  ltLoadSystemDefaults();
+  ltLoadTags();
+  ltAttachMacFormatter(document.getElementById("tag_cfg_mac"));
+  ltAttachMacFormatter(document.getElementById("tag_filter_mac"));
+});
+</script>
+{% endblock %}

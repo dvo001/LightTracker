@@ -1,7 +1,7 @@
 import json
 import threading
 import time
-from typing import Optional
+from typing import Optional, Callable
 
 try:
     import paho.mqtt.client as mqtt
@@ -11,12 +11,13 @@ except Exception:
 from app.db.persistence import get_persistence
 
 class MQTTClientWrapper:
-    def __init__(self, broker_host='localhost', broker_port=1883, tracking_engine=None):
+    def __init__(self, broker_host='localhost', broker_port=1883, tracking_engine=None, status_cb: Optional[Callable[[bool], None]] = None):
         self.broker_host = broker_host
         self.broker_port = broker_port
         self.tracking_engine = tracking_engine
         self._client = None
         self.connected = False
+        self._status_cb = status_cb
 
     def _on_connect(self, client, userdata, flags, rc):
         try:
@@ -29,6 +30,25 @@ class MQTTClientWrapper:
                 p.upsert_setting('mqtt.ok', 'true')
             except Exception:
                 pass
+            self.connected = True
+            if self._status_cb:
+                try:
+                    self._status_cb(True)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+    def _on_disconnect(self, client, userdata, rc):
+        self.connected = False
+        if self._status_cb:
+            try:
+                self._status_cb(False)
+            except Exception:
+                pass
+        try:
+            p = get_persistence()
+            p.upsert_setting('mqtt.ok', 'false')
         except Exception:
             pass
 
@@ -73,6 +93,7 @@ class MQTTClientWrapper:
         self._client = mqtt.Client()
         self._client.on_connect = self._on_connect
         self._client.on_message = self._on_message
+        self._client.on_disconnect = self._on_disconnect
         try:
             self._client.connect(self.broker_host, self.broker_port, 60)
             t = threading.Thread(target=self._client.loop_forever, daemon=True)

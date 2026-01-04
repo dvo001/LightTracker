@@ -2,58 +2,68 @@
 {% block content %}
 <h1>Settings</h1>
 
-<div class="grid2">
-  <div class="card">
-    <div class="card-title">DMX Ausgabe / Artnet</div>
-    <div class="formgrid" style="margin-top:8px;">
-      <label>Modus
-        <select id="dmx_mode">
-          <option value="uart">UART / RS485 (DMX512)</option>
-          <option value="artnet">Artnet (UDP)</option>
-          <option value="off">Aus</option>
-        </select>
-      </label>
-      <label>UART Device
-        <input id="dmx_uart_device" placeholder="/dev/serial0" />
-      </label>
-      <label>Artnet Target IP
-        <input id="artnet_target" placeholder="255.255.255.255" />
-      </label>
-      <label>Artnet Port
-        <input id="artnet_port" type="number" min="1" max="65535" placeholder="6454" />
-      </label>
-      <label>Artnet Universe
-        <input id="artnet_universe" type="number" min="0" max="32767" placeholder="0" />
-      </label>
-    </div>
-    <div class="row">
-      <button class="btn" onclick="ltLoadDmxConfig()">Reload</button>
-      <button class="btn primary" onclick="ltSaveDmxConfig()">Speichern</button>
-    </div>
-    <div class="muted" style="margin-top:8px;">Artnet sendet nur aktiv bei LIVE/Test und nutzt Fixture-Universes. UART bleibt Standard falls keine Settings gesetzt sind.</div>
-    <pre id="dmx_cfg_out" class="pre"></pre>
+<div class="card">
+  <div class="card-title">Zentrale Netzwerk-Settings</div>
+  {% if db_path %}<div class="muted" style="margin-bottom:6px;">DB: {{ db_path }}</div>{% endif %}
+  <div class="formgrid" style="margin-top:8px;">
+    <label>WiFi SSID
+      <input id="wifi_ssid" placeholder="SSID" value="{{ settings_prefill.get('wifi.ssid','') if settings_prefill }}" />
+    </label>
+    <label>WiFi Passwort
+      <input id="wifi_pass" type="password" placeholder="Passwort (leer lassen, falls offen)" value="{{ settings_prefill.get('wifi.pass','') if settings_prefill }}" />
+    </label>
+    <label>MQTT Host
+      <input id="mqtt_host" placeholder="z.B. 192.168.1.10" value="{{ settings_prefill.get('mqtt.host','') if settings_prefill }}" />
+    </label>
+    <label>MQTT Port
+      <input id="mqtt_port" type="number" min="1" max="65535" placeholder="1883" value="{{ settings_prefill.get('mqtt.port','') if settings_prefill }}" />
+    </label>
   </div>
+  <div class="row">
+    <button class="btn" onclick="window.ltLoadSystemDefaults()">Reload</button>
+    <button class="btn primary" onclick="window.ltSaveSystemDefaults(event)">Speichern</button>
+  </div>
+  <div class="muted" style="margin-top:8px;">Wird als Standard für alle <code>Send Config</code>-Aktionen auf Anchor-/Tag-Seiten genutzt.</div>
+  <pre id="net_default_out" class="pre"></pre>
+</div>
 
-  <div class="card">
-    <div class="card-title">Common Keys</div>
-    <ul class="list">
-      <li><code>system.state</code> = <code>SETUP</code> | <code>SAFE</code></li>
-      <li><code>tracking.tag_mac</code> = Tag MAC für Calibration/Live</li>
-      <li><code>anchors.required</code> = Mindestanzahl Anchors</li>
-      <li><code>dmx.uart_device</code> = z.B. <code>/dev/ttyUSB0</code></li>
-      <li><code>dmx.output_mode</code> = <code>uart</code> | <code>artnet</code> | <code>off</code></li>
-      <li><code>artnet.target_ip</code>, <code>artnet.port</code>, <code>artnet.universe</code></li>
-      <li><code>mqtt.host</code>, <code>mqtt.port</code></li>
-    </ul>
+<div class="card" style="margin-top:14px;">
+  <div class="card-title">DMX Ausgabe / Artnet</div>
+  <div class="formgrid" style="margin-top:8px;">
+    <label>Modus
+      <select id="dmx_mode">
+        <option value="uart" {{ 'selected' if dmx_prefill and dmx_prefill.get('mode') == 'uart' else '' }}>UART / RS485 (DMX512)</option>
+        <option value="artnet" {{ 'selected' if dmx_prefill and dmx_prefill.get('mode') == 'artnet' else '' }}>Artnet (UDP)</option>
+        <option value="off" {{ 'selected' if dmx_prefill and dmx_prefill.get('mode') == 'off' else '' }}>Aus</option>
+      </select>
+    </label>
+    <label>UART Device
+      <input id="dmx_uart_device" placeholder="/dev/serial0" value="{{ dmx_prefill.get('uart_device','') if dmx_prefill }}" />
+    </label>
+    <label>Artnet Target IP
+      <input id="artnet_target" placeholder="255.255.255.255" value="{{ dmx_prefill.get('artnet_target','') if dmx_prefill }}" />
+    </label>
+    <label>Artnet Port
+      <input id="artnet_port" type="number" min="1" max="65535" placeholder="6454" value="{{ dmx_prefill.get('artnet_port','') if dmx_prefill }}" />
+    </label>
+    <label>Artnet Universe
+      <input id="artnet_universe" type="number" min="0" max="32767" placeholder="0" value="{{ dmx_prefill.get('artnet_universe','') if dmx_prefill }}" />
+    </label>
   </div>
+  <div class="row">
+    <button class="btn" onclick="window.ltLoadDmxConfig()">Reload</button>
+    <button class="btn primary" onclick="window.ltSaveDmxConfig()">Speichern</button>
+  </div>
+  <div class="muted" style="margin-top:8px;">Artnet sendet nur aktiv bei LIVE/Test und nutzt Fixture-Universes. UART bleibt Standard falls keine Settings gesetzt sind.</div>
+  <pre id="dmx_cfg_out" class="pre"></pre>
 </div>
 
 <div class="card" style="margin-top:14px;">
   <div class="card-title">Settings (Key/Value)</div>
   <div class="row">
-    <button class="btn" onclick="ltLoadSettings()">Reload</button>
-    <button class="btn" onclick="ltAddSettingRow()">+ Row</button>
-    <button class="btn primary" onclick="ltSaveSettings()">Save All</button>
+    <button class="btn" onclick="window.ltLoadSettings()">Reload</button>
+    <button class="btn" onclick="window.ltAddSettingRow()">+ Row</button>
+    <button class="btn primary" onclick="window.ltSaveSettings()">Save All</button>
   </div>
 
   <div class="tablewrap" style="margin-top:12px;">
@@ -62,7 +72,19 @@
         <tr><th>Key</th><th>Value</th><th>Actions</th></tr>
       </thead>
       <tbody id="settings_tbody">
-        <tr><td colspan="3" class="muted">lade…</td></tr>
+        {% if settings_prefill %}
+          {% for k,v in settings_prefill.items() %}
+            <tr>
+              <td><input class="kv_in" value="{{ k }}" placeholder="key" /></td>
+              <td><input class="kv_in" value="{{ v }}" placeholder="value" /></td>
+              <td class="row">
+                <button class="btn danger" type="button" onclick="this.closest('tr').remove()">Remove</button>
+              </td>
+            </tr>
+          {% endfor %}
+        {% else %}
+          <tr><td colspan="3" class="muted">lade…</td></tr>
+        {% endif %}
       </tbody>
     </table>
   </div>
@@ -75,8 +97,9 @@
 <script>
 document.addEventListener("DOMContentLoaded", () => {
   ltRefreshFooterState();
-  ltLoadDmxConfig();
-  ltLoadSettings();
+  window.ltLoadSystemDefaults?.();
+  window.ltLoadDmxConfig?.();
+  window.ltLoadSettings?.();
 });
 </script>
 {% endblock %}

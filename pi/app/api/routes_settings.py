@@ -27,13 +27,26 @@ def _ensure_settings_table(conn):
 
 @router.get("/settings")
 def list_settings():
-    db = get_db_path()
-    conn = sqlite3.connect(db)
-    _ensure_settings_table(conn)
-    cur = conn.execute("SELECT key,value FROM settings")
-    items = [{"key": r[0], "value": r[1]} for r in cur.fetchall()]
-    conn.close()
-    return {"settings": items}
+    try:
+        p = get_persistence()
+        # ensure table exists (persistence does this on init)
+        items = []
+        db = sqlite3.connect(get_db_path())
+        try:
+            _ensure_settings_table(db)
+            rows = db.execute("SELECT key,value FROM settings").fetchall()
+            items = [{"key": r[0], "value": r[1]} for r in rows]
+        finally:
+            db.close()
+        return {"settings": items}
+    except Exception:
+        # fallback raw
+        db = sqlite3.connect(get_db_path())
+        _ensure_settings_table(db)
+        cur = db.execute("SELECT key,value FROM settings")
+        items = [{"key": r[0], "value": r[1]} for r in cur.fetchall()]
+        db.close()
+        return {"settings": items}
 
 
 @router.put("/settings")
@@ -44,12 +57,7 @@ def put_setting(item: SettingItem):
     if state == 'LIVE':
         raise HTTPException(status_code=409, detail={'code': 'STATE_BLOCKED', 'message': 'Cannot change settings while LIVE'})
 
-    db = get_db_path()
-    conn = sqlite3.connect(db)
-    _ensure_settings_table(conn)
-    ts = int(__import__('time').time() * 1000)
-    conn.execute("INSERT OR REPLACE INTO settings(key,value,updated_at_ms) VALUES(?,?,?)", (item.key, item.value, ts))
-    conn.commit()
-    conn.close()
+    # use persistence so the same connection path is used everywhere
+    p.upsert_setting(item.key, item.value)
     return {"ok": True}
 # /settings routes

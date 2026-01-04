@@ -19,7 +19,7 @@ fi
 export PYTHONPATH="${PYTHONPATH:-}:$PWD/pi"
 
 # Defaults (override via env before calling ./start.sh if needed)
-export LT_DB_PATH="${LT_DB_PATH:-$PWD/pi/data/lighttracker.db}"
+export LT_DB_PATH="${LT_DB_PATH:-$PWD/pi/app/data/lighttracker.db}"
 export MQTT_HOST="${MQTT_HOST:-localhost}"
 export MQTT_PORT="${MQTT_PORT:-1883}"
 export DMX_UART_DEVICE="${DMX_UART_DEVICE:-/dev/ttyUSB0}"

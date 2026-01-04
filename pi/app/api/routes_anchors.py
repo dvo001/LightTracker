@@ -2,6 +2,7 @@ from fastapi import APIRouter, HTTPException
 from ..db import connect_db
 from pydantic import BaseModel
 import time
+from app.core.state_manager import StateManager
 
 router = APIRouter()
 
@@ -63,6 +64,9 @@ def get_anchor(mac: str):
 
 @router.post('/anchors/position')
 def upsert_anchor(pos: AnchorPos):
+    sm = StateManager()
+    if sm.get_state() == 'LIVE':
+        raise HTTPException(status_code=409, detail={'code': 'LIVE_GUARD', 'message': 'Anchor position changes blocked in LIVE'})
     db = connect_db()
     ts = int(time.time() * 1000)
     try:

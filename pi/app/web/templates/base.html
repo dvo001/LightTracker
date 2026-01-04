@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>LightTracking UI</title>
-  <link rel="stylesheet" href="/static/style.css" />
+  <link rel="stylesheet" href="/static/style.css?v={{ app_css_version }}" />
 </head>
 <body>
   <header class="topbar">
@@ -12,6 +12,7 @@
     <nav class="nav">
       <a href="/ui">Dashboard</a>
       <a href="/ui/anchors">Anchors</a>
+      <a href="/ui/tags">Tags</a>
       <a href="/ui/fixtures">Aktive Fixtures</a>
       <a href="/ui/library">Fixture Library</a>
       <a href="/ui/calibration">Calibration</a>
@@ -30,7 +31,7 @@
     <div class="muted">LightTracking – Phase-1 UI (aligned to current API).</div>
   </footer>
 
-  <script src="/static/app.js"></script>
+  <script src="/static/app.js?v={{ app_js_version }}"></script>
   {% block scripts %}{% endblock %}
 </body>
 </html>

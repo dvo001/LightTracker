@@ -347,7 +347,7 @@ class Persistence:
                 """INSERT INTO devices(mac, role, alias, name, ip_last, fw, first_seen_at_ms, last_seen_at_ms, status, notes)
                    VALUES(:mac, :role, :alias, :name, :ip_last, :fw, :first_seen_at_ms, :last_seen_at_ms, :status, :notes)
                    ON CONFLICT(mac) DO UPDATE SET
-                     role=excluded.role,
+                     role=COALESCE(excluded.role, devices.role),
                      alias=COALESCE(excluded.alias, devices.alias),
                      name=COALESCE(excluded.name, devices.name),
                      ip_last=COALESCE(excluded.ip_last, devices.ip_last),
@@ -427,6 +427,14 @@ class Persistence:
                 "SELECT id, ts_ms, level, source, event_type, ref, details_json FROM event_log ORDER BY id DESC LIMIT ?",
                 (limit,),
             ).fetchall()
+            return [dict(r) for r in rows]
+        finally:
+            db.close()
+
+    def list_settings(self) -> List[Dict[str, Any]]:
+        db = connect_db()
+        try:
+            rows = db.execute("SELECT key, value FROM settings").fetchall()
             return [dict(r) for r in rows]
         finally:
             db.close()

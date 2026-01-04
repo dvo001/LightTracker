@@ -11,11 +11,27 @@ import sys
 from .db.migrations.runner import run_migrations
 from .api import router as api_router
 
+try:
+    from app.db.persistence import get_persistence
+    from app.api.routes_dmx import _load_dmx_config
+except Exception:
+    get_persistence = None
+    _load_dmx_config = None
+
 app = FastAPI()
 
 BASE_DIR = os.path.dirname(__file__)
 templates = Jinja2Templates(directory=os.path.join(BASE_DIR, 'web', 'templates'))
 app.mount('/static', StaticFiles(directory=os.path.join(BASE_DIR, 'web', 'static')), name='static')
+
+# cache-busting for static assets
+try:
+    APP_JS_VERSION = str(int(os.path.getmtime(os.path.join(BASE_DIR, 'web', 'static', 'app.js'))))
+    APP_CSS_VERSION = str(int(os.path.getmtime(os.path.join(BASE_DIR, 'web', 'static', 'style.css'))))
+except Exception:
+    APP_JS_VERSION = APP_CSS_VERSION = "1"
+templates.env.globals["app_js_version"] = APP_JS_VERSION
+templates.env.globals["app_css_version"] = APP_CSS_VERSION
 
 
 @app.on_event('startup')
@@ -50,7 +66,22 @@ def startup():
     # start mqtt client (if available) and wire to tracking_engine
     try:
         from .mqtt_client import MQTTClientWrapper
-        mc = MQTTClientWrapper(broker_host=os.environ.get('MQTT_HOST','localhost'), broker_port=int(os.environ.get('MQTT_PORT','1883')), tracking_engine=app.state.tracking_engine)
+        # prefer DB settings if available, fallback to env/defaults
+        mqtt_host = os.environ.get('MQTT_HOST', 'localhost')
+        mqtt_port = int(os.environ.get('MQTT_PORT', '1883'))
+        if get_persistence:
+            try:
+                p = get_persistence()
+                mqtt_host = p.get_setting('mqtt.host', mqtt_host) or mqtt_host
+                mqtt_port = int(p.get_setting('mqtt.port', mqtt_port) or mqtt_port)
+            except Exception:
+                pass
+        mc = MQTTClientWrapper(
+            broker_host=mqtt_host,
+            broker_port=mqtt_port,
+            tracking_engine=app.state.tracking_engine,
+            status_cb=lambda ok: setattr(app.state, "mqtt_ok", bool(ok))
+        )
         app.state.mqtt_client = mc
         try:
             mc.start()
@@ -85,6 +116,11 @@ def startup():
         loop.create_task(_dmx_loop())
     except Exception:
         pass
+    # broadcaster loop (websocket updates)
+    try:
+        loop.create_task(_broadcaster())
+    except Exception as e:
+        print(f"[startup] broadcaster start failed: {e}", file=sys.stderr)
 
 
 async def _dmx_loop():
@@ -96,13 +132,6 @@ async def _dmx_loop():
         except Exception:
             pass
         await asyncio.sleep(1.0 / 30.0)
-
-    # start broadcaster task
-    try:
-        loop.create_task(_broadcaster())
-    except RuntimeError:
-        # if no running loop (uvicorn will provide one), ignore
-        pass
 
 
 async def _broadcaster():
@@ -187,6 +216,7 @@ def ui_page(page: str, request: Request):
     # safe mapping for a handful of pages
     mapping = {
         'anchors': 'anchors.html',
+        'tags': 'tags.html',
         'fixtures': 'fixtures.html',
         'live': 'live.html',
         'calibration': 'calibration.html',
@@ -198,7 +228,22 @@ def ui_page(page: str, request: Request):
     tpl = mapping.get(page)
     if not tpl:
         return templates.TemplateResponse('index.html', {'request': request})
-    return templates.TemplateResponse(tpl, {'request': request})
+    from app.db import get_db_path
+    ctx = {'request': request, 'db_path': get_db_path()}
+    if page == 'settings' and get_persistence:
+        try:
+            p = get_persistence()
+            settings = getattr(p, "list_settings", lambda: [])()
+            ctx['settings_prefill'] = {s['key']: s['value'] for s in settings} if settings else {}
+            if _load_dmx_config:
+                try:
+                    ctx['dmx_prefill'] = _load_dmx_config()
+                except Exception:
+                    ctx['dmx_prefill'] = {}
+        except Exception:
+            ctx['settings_prefill'] = {}
+            ctx['dmx_prefill'] = {}
+    return templates.TemplateResponse(tpl, ctx)
 
 
 @app.get('/ui/fixtures/new', response_class=HTMLResponse)
