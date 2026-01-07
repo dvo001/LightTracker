@@ -4,10 +4,18 @@
 #include "device_identity.h"
 #include "mqtt_client.h"
 
+#ifndef DEFAULT_BATCH_PERIOD_MS
+#define DEFAULT_BATCH_PERIOD_MS 100
+#endif
+#ifndef DEFAULT_HEARTBEAT_MS
+#define DEFAULT_HEARTBEAT_MS 5000
+#endif
+
 class CmdHandler {
 public:
-  int batch_period_ms = 100;
-  int heartbeat_ms = 5000;
+  int batch_period_ms = DEFAULT_BATCH_PERIOD_MS;
+  int heartbeat_ms = DEFAULT_HEARTBEAT_MS;
+  std::function<void(JsonObjectConst)> on_settings = nullptr;
 
   bool handle(const char* payload, PiMqttClient& mqtt) {
     StaticJsonDocument<512> doc;
@@ -21,6 +29,7 @@ public:
       const char* cmd_id = doc["cmd_id"];
       if (strcmp(cmd, "apply_settings") == 0) {
         JsonObject settings = doc["settings"];
+        if (on_settings) on_settings(settings);
         bool net_changed = false;
         String ssid = settings["ssid"] | "";
         String pass = settings["pass"] | "";

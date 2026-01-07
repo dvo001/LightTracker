@@ -17,6 +17,57 @@ bool star_on = false;
 String tag_mac;
 wl_status_t last_wifi_status = WL_IDLE_STATUS;
 unsigned long last_wifi_log = 0;
+constexpr int kUwbUartRx =
+#ifdef UWB_UART_RX
+  UWB_UART_RX;
+#else
+  -1;
+#endif
+constexpr int kUwbUartTx =
+#ifdef UWB_UART_TX
+  UWB_UART_TX;
+#else
+  -1;
+#endif
+constexpr int kUwbUartBaud =
+#ifdef UWB_UART_BAUD
+  UWB_UART_BAUD;
+#else
+  115200;
+#endif
+#ifndef UWB_TAG_INDEX
+#define UWB_TAG_INDEX 0
+#endif
+#ifndef UWB_TAG_COUNT
+#define UWB_TAG_COUNT 64
+#endif
+#ifndef UWB_AT_CONFIG
+#define UWB_AT_CONFIG 1
+#endif
+#ifndef UWB_AT_RESTART
+#define UWB_AT_RESTART 1
+#endif
+
+static void uwb_send_cmd(const char* cmd, unsigned long wait_ms = 80) {
+  Serial1.println(cmd);
+  unsigned long start = millis();
+  String line;
+  while (millis() - start < wait_ms) {
+    while (Serial1.available()) {
+      char c = (char)Serial1.read();
+      if (c == '\r') continue;
+      if (c == '\n') {
+#ifdef UWB_AT_DEBUG
+        if (line.length()) Serial.printf("uwb: %s\n", line.c_str());
+#endif
+        line = "";
+      } else {
+        line += c;
+      }
+    }
+    delay(1);
+  }
+}
 
 static const char* wifi_status_str(wl_status_t st){
   switch (st){
@@ -67,6 +118,26 @@ void setup() {
             String(mac[3], HEX) + ":" + String(mac[4], HEX) + ":" + String(mac[5], HEX);
   tag_mac.toUpperCase();
   Serial.printf("tag: mac=%s\n", tag_mac.c_str());
+  if (kUwbUartRx >= 0 && kUwbUartTx >= 0) {
+    Serial1.begin(kUwbUartBaud, SERIAL_8N1, kUwbUartRx, kUwbUartTx);
+    Serial.printf("uwb: uart1 rx=%d tx=%d baud=%d\n", kUwbUartRx, kUwbUartTx, kUwbUartBaud);
+#if UWB_AT_CONFIG
+    Serial.printf("uwb: config tag_index=%d tag_count=%d\n", UWB_TAG_INDEX, UWB_TAG_COUNT);
+    char cmd[64];
+    uwb_send_cmd("AT");
+    snprintf(cmd, sizeof(cmd), "AT+SETCFG=%d,0,1,1", UWB_TAG_INDEX);
+    uwb_send_cmd(cmd, 200);
+    snprintf(cmd, sizeof(cmd), "AT+SETCAP=%d,10,1", UWB_TAG_COUNT);
+    uwb_send_cmd(cmd, 200);
+    uwb_send_cmd("AT+SETRPT=1", 200);
+    uwb_send_cmd("AT+SAVE", 200);
+#if UWB_AT_RESTART
+    uwb_send_cmd("AT+RESTART", 200);
+#endif
+#endif
+  } else {
+    Serial.println("uwb: uart not configured (set UWB_UART_RX/TX)");
+  }
   mqtt.load_config_from_nvs();
   WiFi.mode(WIFI_STA);
   mqtt.begin();
@@ -152,7 +223,8 @@ void loop() {
     }
   }
   if (now - last_status >= 5000) {
-    String st = JsonPayloads::status_payload("ONLINE", "0.0.0.0", millis(), mqtt.reconnects, 0);
+    String ip = WiFi.localIP().toString();
+    String st = JsonPayloads::status_payload("ONLINE", ip.c_str(), millis(), mqtt.reconnects, 0);
     String topic = String("dev/") + DeviceIdentity::mac_nocolon() + "/status";
     mqtt.publish(topic, st);
     last_status = now;
