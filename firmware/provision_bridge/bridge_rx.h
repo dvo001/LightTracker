@@ -9,5 +9,6 @@ struct RxState {
   std::vector<uint8_t> payload;
 };
 
+void bridge_rx_init();
 void bridge_rx_reset();
 bool bridge_rx_wait(uint16_t expect_seq, uint8_t expect_type, const uint8_t* mac, uint32_t timeout_ms, RxState& out);

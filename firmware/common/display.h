@@ -31,7 +31,7 @@ public:
     oled.display();
   }
 
-  void draw(const String& alias, const String& mode, int visible_count, bool wifi_connected, int wifi_rssi, bool show_visible=true){
+  void draw(const String& alias, const String& mode, int visible_count, bool wifi_connected, int wifi_rssi, bool show_visible=true, bool show_star=false, bool star_on=true){
     if (!ready) return;
     last_draw_ms = millis();
     last_visible = visible_count;
@@ -69,6 +69,10 @@ public:
       oled.setCursor(72, 52);
       oled.print(mode == "Tag" ? "Anchors: " : "Tags: ");
       oled.print(visible_count);
+    }
+
+    if (show_star){
+      draw_star(116, 18, star_on);
     }
 
     oled.display();
@@ -131,5 +135,27 @@ private:
     };
     const unsigned char* bmp = (mode == "Tag") ? tag_bits : anchor_bits;
     oled.drawBitmap(x, y, bmp, 12, 12, SSD1306_WHITE);
+  }
+
+  void draw_star(int x, int y, bool on){
+    if (!on){
+      oled.drawRect(x, y, 8, 8, SSD1306_WHITE);
+      return;
+    }
+    // Simple 7x7 star
+    const uint8_t star[7][7] = {
+      {0,0,1,0,1,0,0},
+      {0,0,1,1,1,0,0},
+      {1,1,1,1,1,1,1},
+      {0,1,1,1,1,1,0},
+      {0,0,1,1,1,0,0},
+      {0,0,1,1,1,0,0},
+      {0,0,1,0,1,0,0},
+    };
+    for (int dy=0; dy<7; dy++){
+      for (int dx=0; dx<7; dx++){
+        if (star[dy][dx]) oled.drawPixel(x+dx, y+dy, SSD1306_WHITE);
+      }
+    }
   }
 };

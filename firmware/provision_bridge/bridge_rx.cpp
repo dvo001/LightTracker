@@ -91,5 +91,7 @@ bool bridge_rx_wait(uint16_t expect_seq, uint8_t expect_type, const uint8_t* mac
   return false;
 }
 
-struct RxInit { RxInit(){ espnow_init_bridge(_handler); } };
-static RxInit _rx_init;
+void bridge_rx_init(){
+  bridge_rx_reset();
+  espnow_init_bridge(_handler);
+}

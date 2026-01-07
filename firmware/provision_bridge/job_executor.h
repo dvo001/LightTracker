@@ -8,3 +8,4 @@
 String handle_provision_write(const DynamicJsonDocument& doc, JobState& job);
 String handle_provision_read(const DynamicJsonDocument& doc, JobState& job);
 String handle_reboot(const DynamicJsonDocument& doc, JobState& job);
+String handle_ping(const DynamicJsonDocument& doc, JobState& job);

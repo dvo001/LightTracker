@@ -2,6 +2,7 @@
 #include <esp_wifi.h>
 #include <esp_now.h>
 #include <WiFi.h>
+#include <esp_err.h>
 
 static EspNowRecvHandler g_handler = nullptr;
 static void _on_recv(const uint8_t *mac, const uint8_t *incomingData, int len){
@@ -25,8 +26,22 @@ bool espnow_send_frame(const uint8_t peer_mac[6], const uint8_t* data, size_t le
   peer.channel = 6;
   peer.encrypt = false;
   esp_now_del_peer(peer.peer_addr);
-  if (esp_now_add_peer(&peer) != ESP_OK) return false;
-  return esp_now_send(peer.peer_addr, data, len) == ESP_OK;
+  esp_err_t add = esp_now_add_peer(&peer);
+  if (add != ESP_OK){
+    Serial.printf("bridge: espnow add_peer failed err=%d\n", add);
+    return false;
+  }
+  esp_err_t err = esp_now_send(peer.peer_addr, data, len);
+  if (err != ESP_OK){
+    Serial.printf("bridge: espnow send failed err=%d len=%u to %02X:%02X:%02X:%02X:%02X:%02X\n",
+                  err, (unsigned)len,
+                  peer_mac[0], peer_mac[1], peer_mac[2], peer_mac[3], peer_mac[4], peer_mac[5]);
+    return false;
+  }
+  Serial.printf("bridge: espnow send ok len=%u to %02X:%02X:%02X:%02X:%02X:%02X\n",
+                (unsigned)len,
+                peer_mac[0], peer_mac[1], peer_mac[2], peer_mac[3], peer_mac[4], peer_mac[5]);
+  return true;
 }
 
 bool espnow_add_peer(const uint8_t peer_mac[6]){

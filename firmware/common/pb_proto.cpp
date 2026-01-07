@@ -26,7 +26,12 @@ std::vector<uint8_t> pb_build_frame(const PbHeader& hdr, const uint8_t* payload,
   push16(hdr.payload_len);
   push16(0);
   out.insert(out.end(), payload, payload + len);
-  uint16_t crc = pb_crc16(out.data(), out.size());
+  // CRC covers header without the CRC field (11 bytes) + payload
+  std::vector<uint8_t> crc_buf;
+  crc_buf.reserve((PB_HDR_SIZE - 2) + len);
+  crc_buf.insert(crc_buf.end(), out.begin(), out.begin() + (PB_HDR_SIZE - 2));
+  if (len && payload) crc_buf.insert(crc_buf.end(), payload, payload + len);
+  uint16_t crc = pb_crc16(crc_buf.data(), crc_buf.size());
   out[11] = crc & 0xFF;
   out[12] = (crc >> 8) & 0xFF;
   return out;
@@ -44,7 +49,13 @@ bool pb_parse_header(const uint8_t* data, size_t len, PbHeader& out){
   out.payload_len = data[9] | (data[10] << 8);
   out.crc16 = data[11] | (data[12] << 8);
   if (out.magic != PB_MAGIC || out.ver != PB_VER) return false;
-  uint16_t crc = pb_crc16(data, PB_HDR_SIZE - 2 + out.payload_len);
+  if (out.payload_len > (len - PB_HDR_SIZE)) return false;
+  // CRC covers header without the CRC field (11 bytes) + payload
+  std::vector<uint8_t> crc_buf;
+  crc_buf.reserve((PB_HDR_SIZE - 2) + out.payload_len);
+  crc_buf.insert(crc_buf.end(), data, data + (PB_HDR_SIZE - 2));
+  if (out.payload_len) crc_buf.insert(crc_buf.end(), data + PB_HDR_SIZE, data + PB_HDR_SIZE + out.payload_len);
+  uint16_t crc = pb_crc16(crc_buf.data(), crc_buf.size());
   if (crc != out.crc16) return false;
   return true;
 }

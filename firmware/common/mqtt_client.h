@@ -5,9 +5,10 @@
 #include <functional>
 #include "device_identity.h"
 #include "json_payloads.h"
+#include <nvs_flash.h>
 
 class PiMqttClient;
-static PiMqttClient* _lt_active_mqtt = nullptr;
+extern PiMqttClient* _lt_active_mqtt;
 static void _lt_mqtt_callback(char* topic, uint8_t* payload, unsigned int len);
 
 class PiMqttClient {
@@ -24,13 +25,19 @@ public:
   int reconnects = 0;
   int parse_errors = 0;
   std::function<void(const String&, const String&)> on_cmd = nullptr;
+  bool has_wifi_cfg = false;
 
   PiMqttClient() {
     client.setServer(mqtt_host.c_str(), mqtt_port);
   }
 
   void load_config_from_nvs() {
-    prefs.begin("lt_cfg", true);
+    if (!prefs.begin("lt_cfg", false)){
+      Serial.println("mqtt: prefs open failed, reinit NVS");
+      nvs_flash_erase();
+      nvs_flash_init();
+      prefs.begin("lt_cfg", false);
+    }
     wifi_ssid = prefs.getString("ssid", wifi_ssid);
     wifi_pass = prefs.getString("pass", wifi_pass);
     mqtt_host = prefs.getString("mqtt_host", mqtt_host);
@@ -38,6 +45,10 @@ public:
     device_alias = prefs.getString("alias", device_alias);
     prefs.end();
     client.setServer(mqtt_host.c_str(), mqtt_port);
+    has_wifi_cfg = wifi_ssid.length() > 0;
+    if (!has_wifi_cfg){
+      Serial.println("mqtt: no wifi config stored");
+    }
   }
 
   void save_config_to_nvs() {
@@ -53,12 +64,12 @@ public:
   void begin() {
     _lt_active_mqtt = this;
     client.setCallback(_lt_mqtt_callback);
-    if (wifi_ssid.length()) {
-      WiFi.begin(wifi_ssid.c_str(), wifi_pass.c_str());
-    }
+    if (!has_wifi_cfg) return;
+    WiFi.begin(wifi_ssid.c_str(), wifi_pass.c_str());
   }
 
   bool reconnect() {
+    if (!has_wifi_cfg) return false;
     if (client.connected()) return true;
     if (WiFi.status() != WL_CONNECTED && wifi_ssid.length()) {
       WiFi.begin(wifi_ssid.c_str(), wifi_pass.c_str());

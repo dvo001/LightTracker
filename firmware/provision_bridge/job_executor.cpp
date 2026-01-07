@@ -43,7 +43,10 @@ static bool send_and_wait(const uint8_t* mac, PbMsgType type, const std::vector<
   size_t total = payload.size();
   size_t frag_cnt = (total + PB_MAX_PAYLOAD_PER_FRAME - 1) / PB_MAX_PAYLOAD_PER_FRAME;
   if (frag_cnt == 0) frag_cnt = 1;
+  Serial.printf("bridge: send type=%u seq=%u to %02X:%02X:%02X:%02X:%02X:%02X len=%u frags=%u expect=%u\n",
+                type, seq, mac[0], mac[1], mac[2], mac[3], mac[4], mac[5], (unsigned)total, (unsigned)frag_cnt, expect_type);
   for (int attempt = 0; attempt < retries; attempt++){
+    Serial.printf("bridge: tx attempt %d/%d type=%u seq=%u\n", attempt+1, retries, type, seq);
     bool tx_ok = true;
     for (size_t i=0; i<frag_cnt; i++){
       size_t offset = i * PB_MAX_PAYLOAD_PER_FRAME;
@@ -72,12 +75,15 @@ static bool send_and_wait(const uint8_t* mac, PbMsgType type, const std::vector<
     if (bridge_rx_wait(seq, expect_type, mac, timeout_ms, rx)){
       if (rx.hdr.msg_type == PB_NACK){
         err_code = "NACK";
+        Serial.println("bridge: got NACK");
         return false;
       }
       if (rx_out) *rx_out = rx;
+      Serial.println("bridge: got expected ACK");
       return true;
     }
     err_code = "NO_ACK";
+    Serial.println("bridge: no ack, retry");
   }
   return false;
 }
@@ -94,9 +100,23 @@ String handle_provision_write(const DynamicJsonDocument& doc, JobState& job){
   if (!parse_mac(dev, mac)) return make_err(op, id, dev, "BAD_REQUEST", "invalid mac");
   String token = doc["auth"]["token"] | "";
   if (token == "") return make_err(op, id, dev, "SECURITY_DENIED", "token required");
+  String wifi_ssid = doc["cfg"]["wifi"]["ssid"] | "";
+  String wifi_pass = doc["cfg"]["wifi"]["pass"] | "";
+  String mqtt_host = doc["cfg"]["mqtt"]["host"] | "";
+  int mqtt_port = doc["cfg"]["mqtt"]["port"] | 0;
+  Serial.printf("bridge: cfg wifi_ssid='%s' pass_len=%d mqtt_host='%s' mqtt_port=%d\n",
+                wifi_ssid.c_str(), wifi_pass.length(), mqtt_host.c_str(), mqtt_port);
   String cfg_json;
   serializeJson(doc["cfg"], cfg_json);
   auto payload = cbor_encode_cfg(token, cfg_json);
+  Serial.printf("bridge: cfg_json=%s\n", cfg_json.c_str());
+  uint16_t payload_crc = pb_crc16(payload.data(), payload.size());
+  Serial.printf("bridge: cbor payload len=%u crc=0x%04X\n", (unsigned)payload.size(), payload_crc);
+  Serial.print("bridge: cbor payload hex=");
+  for (size_t i = 0; i < payload.size(); i++){
+    Serial.printf("%02X ", payload[i]);
+  }
+  Serial.println();
 
   job.status = JobStatus::BUSY;
   job.current_id = id;
@@ -192,6 +212,36 @@ String handle_reboot(const DynamicJsonDocument& doc, JobState& job){
   resp["v"] = 1;
   resp["id"] = id;
   resp["op"] = "reboot_ack";
+  resp["device_id"] = dev;
+  resp["status"] = "ok";
+  String out; serializeJson(resp, out); return out;
+}
+
+String handle_ping(const DynamicJsonDocument& doc, JobState& job){
+  String id, op, dev;
+  if (!validate_common(doc, id, op, dev)){
+    return "{\"v\":1,\"status\":\"error\",\"err\":{\"code\":\"BAD_REQUEST\"}}";
+  }
+  if (job.status == JobStatus::BUSY){
+    return make_err(op, id, dev, "BUSY", "bridge busy");
+  }
+  uint8_t mac[6];
+  if (!parse_mac(dev, mac)) return make_err(op, id, dev, "BAD_REQUEST", "invalid mac");
+  job.status = JobStatus::BUSY;
+  job.current_id = id;
+  memcpy(job.current_mac.data(), mac, 6);
+  uint16_t seq = job.next_seq();
+  String err;
+  RxState rx;
+  bool ok = send_and_wait(mac, PB_PING, {}, seq, PB_PING_ACK, 2000, 2, err, &rx);
+  job.clear();
+  if (!ok){
+    return make_err(op, id, dev, err.c_str(), "ping failed");
+  }
+  DynamicJsonDocument resp(128);
+  resp["v"] = 1;
+  resp["id"] = id;
+  resp["op"] = "ping_ack";
   resp["device_id"] = dev;
   resp["status"] = "ok";
   String out; serializeJson(resp, out); return out;

@@ -6,6 +6,7 @@
 #include <ArduinoJson.h>
 #include "mqtt_client.h"
 #include "cbor_codec.h"
+#include <nvs_flash.h>
 
 static uint8_t g_last_src[6] = {0};
 static uint16_t g_last_seq = 0;
@@ -21,22 +22,301 @@ static uint8_t g_frag_msg = 0;
 static uint8_t g_frag_cnt = 0;
 static uint32_t g_frag_last_ms = 0;
 static std::vector<std::vector<uint8_t>> g_frags;
+static void on_recv(const uint8_t *mac, const uint8_t *data, int len);
+static bool g_active = false;
+
+struct CborView {
+  const uint8_t* p;
+  const uint8_t* end;
+};
+
+struct CborCfgOut {
+  String token;
+  String wifi_ssid;
+  String wifi_pass;
+  int wifi_dhcp = 1;
+  String mqtt_host;
+  int mqtt_port = 1883;
+  String mqtt_user;
+  String mqtt_pass;
+  String mqtt_topic;
+  bool has_wifi = false;
+  bool has_mqtt = false;
+  bool has_wifi_ssid = false;
+  bool has_wifi_pass = false;
+  bool has_wifi_dhcp = false;
+  bool has_mqtt_host = false;
+  bool has_mqtt_port = false;
+  bool has_mqtt_user = false;
+  bool has_mqtt_pass = false;
+  bool has_mqtt_topic = false;
+};
+
+static bool cbor_read_len(CborView& cv, uint8_t ai, uint64_t& len){
+  if (ai < 24){ len = ai; return true; }
+  if (ai == 24){
+    if (cv.p >= cv.end) return false;
+    len = *cv.p++;
+    return true;
+  }
+  if (ai == 25){
+    if (cv.p + 1 >= cv.end) return false;
+    len = (cv.p[0] << 8) | cv.p[1];
+    cv.p += 2;
+    return true;
+  }
+  if (ai == 26){
+    if (cv.p + 3 >= cv.end) return false;
+    len = ((uint32_t)cv.p[0] << 24) | ((uint32_t)cv.p[1] << 16) | ((uint32_t)cv.p[2] << 8) | cv.p[3];
+    cv.p += 4;
+    return true;
+  }
+  return false;
+}
+
+static bool cbor_read_head(CborView& cv, uint8_t& maj, uint64_t& val){
+  if (cv.p >= cv.end) return false;
+  uint8_t ib = *cv.p++;
+  maj = ib >> 5;
+  uint8_t ai = ib & 0x1F;
+  if (maj == 7){
+    if (ai < 24){ val = ai; return true; }
+    return false;
+  }
+  return cbor_read_len(cv, ai, val);
+}
+
+static bool cbor_read_text(CborView& cv, String& out){
+  uint8_t maj = 0;
+  uint64_t len = 0;
+  if (!cbor_read_head(cv, maj, len)) return false;
+  if (maj != 3) return false;
+  if (cv.p + len > cv.end) return false;
+  out = "";
+  out.reserve(len);
+  for (uint64_t i = 0; i < len; i++) out += (char)cv.p[i];
+  cv.p += len;
+  return true;
+}
+
+static bool cbor_read_uint(CborView& cv, uint64_t& out){
+  uint8_t maj = 0;
+  uint64_t val = 0;
+  if (!cbor_read_head(cv, maj, val)) return false;
+  if (maj != 0) return false;
+  out = val;
+  return true;
+}
+
+static bool cbor_skip(CborView& cv);
+
+static bool cbor_skip_value(CborView& cv, uint8_t maj, uint64_t val){
+  switch (maj){
+    case 0:
+    case 1:
+      return true;
+    case 2:
+    case 3:
+      if (cv.p + val > cv.end) return false;
+      cv.p += val;
+      return true;
+    case 4:
+      for (uint64_t i = 0; i < val; i++){
+        if (!cbor_skip(cv)) return false;
+      }
+      return true;
+    case 5:
+      for (uint64_t i = 0; i < val; i++){
+        if (!cbor_skip(cv)) return false;
+        if (!cbor_skip(cv)) return false;
+      }
+      return true;
+    case 7:
+      return true;
+    default:
+      return false;
+  }
+}
+
+static bool cbor_skip(CborView& cv){
+  uint8_t maj = 0;
+  uint64_t val = 0;
+  if (!cbor_read_head(cv, maj, val)) return false;
+  return cbor_skip_value(cv, maj, val);
+}
+
+static bool cbor_parse_wifi_map(CborView& cv, CborCfgOut& out){
+  uint8_t maj = 0;
+  uint64_t count = 0;
+  if (!cbor_read_head(cv, maj, count)) return false;
+  if (maj != 5) return cbor_skip_value(cv, maj, count);
+  out.has_wifi = true;
+  for (uint64_t i = 0; i < count; i++){
+    String key;
+    if (!cbor_read_text(cv, key)) return false;
+    if (key == "ssid"){
+      String val;
+      if (!cbor_read_text(cv, val)) return false;
+      out.wifi_ssid = val;
+      out.has_wifi_ssid = true;
+    } else if (key == "pass"){
+      String val;
+      if (!cbor_read_text(cv, val)) return false;
+      out.wifi_pass = val;
+      out.has_wifi_pass = true;
+    } else if (key == "dhcp"){
+      uint64_t v = 0;
+      if (!cbor_read_uint(cv, v)) return false;
+      out.wifi_dhcp = (int)v;
+      out.has_wifi_dhcp = true;
+    } else {
+      if (!cbor_skip(cv)) return false;
+    }
+  }
+  return true;
+}
+
+static bool cbor_parse_mqtt_map(CborView& cv, CborCfgOut& out){
+  uint8_t maj = 0;
+  uint64_t count = 0;
+  if (!cbor_read_head(cv, maj, count)) return false;
+  if (maj != 5) return cbor_skip_value(cv, maj, count);
+  out.has_mqtt = true;
+  for (uint64_t i = 0; i < count; i++){
+    String key;
+    if (!cbor_read_text(cv, key)) return false;
+    if (key == "host"){
+      String val;
+      if (!cbor_read_text(cv, val)) return false;
+      out.mqtt_host = val;
+      out.has_mqtt_host = true;
+    } else if (key == "port"){
+      uint64_t v = 0;
+      if (!cbor_read_uint(cv, v)) return false;
+      out.mqtt_port = (int)v;
+      out.has_mqtt_port = true;
+    } else if (key == "user"){
+      String val;
+      if (!cbor_read_text(cv, val)) return false;
+      out.mqtt_user = val;
+      out.has_mqtt_user = true;
+    } else if (key == "pass"){
+      String val;
+      if (!cbor_read_text(cv, val)) return false;
+      out.mqtt_pass = val;
+      out.has_mqtt_pass = true;
+    } else if (key == "topic_prefix"){
+      String val;
+      if (!cbor_read_text(cv, val)) return false;
+      out.mqtt_topic = val;
+      out.has_mqtt_topic = true;
+    } else {
+      if (!cbor_skip(cv)) return false;
+    }
+  }
+  return true;
+}
+
+static bool cbor_parse_cfg_map(CborView& cv, CborCfgOut& out){
+  uint8_t maj = 0;
+  uint64_t count = 0;
+  if (!cbor_read_head(cv, maj, count)) return false;
+  if (maj != 5) return cbor_skip_value(cv, maj, count);
+  for (uint64_t i = 0; i < count; i++){
+    String key;
+    if (!cbor_read_text(cv, key)) return false;
+    if (key == "wifi"){
+      if (!cbor_parse_wifi_map(cv, out)) return false;
+    } else if (key == "mqtt"){
+      if (!cbor_parse_mqtt_map(cv, out)) return false;
+    } else {
+      if (!cbor_skip(cv)) return false;
+    }
+  }
+  return true;
+}
+
+static bool cbor_decode_cfg(const uint8_t* data, size_t len, CborCfgOut& out){
+  CborView cv{data, data + len};
+  uint8_t maj = 0;
+  uint64_t count = 0;
+  if (!cbor_read_head(cv, maj, count)) return false;
+  if (maj != 5) return false;
+  for (uint64_t i = 0; i < count; i++){
+    String key;
+    if (!cbor_read_text(cv, key)) return false;
+    if (key == "token"){
+      String val;
+      if (!cbor_read_text(cv, val)) return false;
+      out.token = val;
+    } else if (key == "cfg"){
+      if (!cbor_parse_cfg_map(cv, out)) return false;
+    } else {
+      if (!cbor_skip(cv)) return false;
+    }
+  }
+  return true;
+}
 
 static String get_pref(const char* key, const String& def=""){
+  if (!prefs.isKey(key)) return def;
   return prefs.getString(key, def);
 }
 static void set_pref(const char* key, const String& val){ prefs.putString(key, val); }
 static void set_pref_int(const char* key, int v){ prefs.putInt(key, v); }
-static int get_pref_int(const char* key, int defv){ return prefs.getInt(key, defv); }
+static int get_pref_int(const char* key, int defv){
+  if (!prefs.isKey(key)) return defv;
+  return prefs.getInt(key, defv);
+}
 
 static PiMqttClient* g_mqtt = nullptr;
+static void mirror_to_lt_cfg(){
+  Preferences cfg;
+  if (!cfg.begin("lt_cfg", false)){
+    Serial.println("prov: lt_cfg open failed");
+    return;
+  }
+  cfg.putString("ssid", get_pref("wifi_ssid"));
+  cfg.putString("pass", get_pref("wifi_pass"));
+  cfg.putString("mqtt_host", get_pref("mqtt_host"));
+  cfg.putInt("mqtt_port", get_pref_int("mqtt_port", 1883));
+  cfg.end();
+  Serial.printf("prov: mirrored lt_cfg ssid='%s' pass_len=%d mqtt_host='%s' mqtt_port=%d\n",
+                get_pref("wifi_ssid").c_str(),
+                (int)get_pref("wifi_pass").length(),
+                get_pref("mqtt_host").c_str(),
+                get_pref_int("mqtt_port", 1883));
+}
 
 void prov_init(){
+  g_active = false;
+  // ensure ESP-NOW uses a known channel and WiFi STA is idle
+  WiFi.disconnect(true, true);
+  delay(50);
   WiFi.mode(WIFI_STA);
   esp_wifi_set_channel(6, WIFI_SECOND_CHAN_NONE);
-  esp_now_init();
-  // TODO: register recv callback, set up dedup cache, NVS schema, handlers
-  prefs.begin("prov", false);
+  if (esp_now_init() != ESP_OK){
+    Serial.println("prov: esp_now_init failed");
+    return;
+  }
+  if (esp_now_register_recv_cb(on_recv) != ESP_OK){
+    Serial.println("prov: register_recv failed");
+    return;
+  }
+  g_active = true;
+  Serial.println("prov: espnow active on channel 6");
+  if (!prefs.begin("prov", false)){
+    Serial.println("prov: prefs open failed, reinit NVS");
+    nvs_flash_erase();
+    nvs_flash_init();
+    prefs.begin("prov", false);
+  }
+  // debug: show stored config
+  Serial.printf("prov: stored ssid='%s' pass_len=%d mqtt_host='%s' mqtt_port=%d\n",
+                get_pref("wifi_ssid").c_str(),
+                (int)get_pref("wifi_pass").length(),
+                get_pref("mqtt_host").c_str(),
+                get_pref_int("mqtt_port", 0));
   // allow linking to global MQTT client if exists
   g_mqtt = _lt_active_mqtt;
 }
@@ -55,8 +335,17 @@ static void send_raw(const uint8_t* dest, const std::vector<uint8_t>& data){
   peer.channel = 6;
   peer.encrypt = false;
   esp_now_del_peer(peer.peer_addr);
-  esp_now_add_peer(&peer);
-  esp_now_send(peer.peer_addr, data.data(), data.size());
+  esp_err_t add = esp_now_add_peer(&peer);
+  if (add != ESP_OK){
+    Serial.printf("prov: add_peer failed err=%d\n", add);
+    return;
+  }
+  esp_err_t err = esp_now_send(peer.peer_addr, data.data(), data.size());
+  if (err != ESP_OK){
+    Serial.printf("prov: send fail err=%d len=%u to %02X:%02X:%02X:%02X:%02X:%02X\n",
+                  err, (unsigned)data.size(),
+                  dest[0], dest[1], dest[2], dest[3], dest[4], dest[5]);
+  }
 }
 
 static void send_nack(const uint8_t* src, uint16_t seq, const char* code, const char* msg){
@@ -75,9 +364,20 @@ static void send_nack(const uint8_t* src, uint16_t seq, const char* code, const 
 
 static void on_recv(const uint8_t *mac, const uint8_t *data, int len){
   PbHeader hdr;
-  if (!pb_parse_header(data, len, hdr)) return;
+  if (!pb_parse_header(data, len, hdr)){
+    Serial.printf("prov: parse fail len=%d data=", len);
+    int dump = min(len, 16);
+    for (int i=0;i<dump;i++){
+      Serial.printf("%02X ", data[i]);
+    }
+    Serial.println();
+    return;
+  }
   const uint8_t* payload = data + PB_HDR_SIZE;
   size_t paylen = len - PB_HDR_SIZE;
+  Serial.printf("prov: rx mac=%02X:%02X:%02X:%02X:%02X:%02X type=%u seq=%u len=%d\n",
+                mac[0], mac[1], mac[2], mac[3], mac[4], mac[5],
+                hdr.msg_type, hdr.seq, len);
   // reassembly
   if (hdr.flags & PB_FLAG_IS_FRAG){
     if (!g_frag_active || memcmp(g_frag_src, mac, 6)!=0 || g_frag_seq!=hdr.seq || g_frag_msg!=hdr.msg_type){
@@ -120,40 +420,57 @@ static void on_recv(const uint8_t *mac, const uint8_t *data, int len){
       break;
     }
     case PB_WRITE_CFG: {
-      DynamicJsonDocument doc(1024);
-      if (!cbor_decode_to_json(payload, paylen, doc)){ send_nack(mac, hdr.seq, "BAD_REQUEST", "cbor"); break; }
-      String token = doc["token"] | "";
-      if (token != g_token){
+      uint16_t payload_crc = pb_crc16(payload, paylen);
+      Serial.printf("prov: payload len=%u crc=0x%04X\n", (unsigned)paylen, payload_crc);
+      Serial.print("prov: payload hex=");
+      for (size_t i = 0; i < paylen; i++){
+        Serial.printf("%02X ", payload[i]);
+      }
+      Serial.println();
+      CborCfgOut cfg;
+      if (!cbor_decode_cfg(payload, paylen, cfg)){
+        Serial.println("prov: cbor decode failed");
+        send_nack(mac, hdr.seq, "BAD_REQUEST", "cbor");
+        break;
+      }
+      Serial.printf("prov: decoded token_len=%d has_wifi=%d has_mqtt=%d\n",
+                    cfg.token.length(),
+                    cfg.has_wifi ? 1 : 0,
+                    cfg.has_mqtt ? 1 : 0);
+      if (cfg.token != g_token){
+        Serial.println("prov: token mismatch");
         send_nack(mac, hdr.seq, "SECURITY_DENIED", "token mismatch");
         break;
       }
-      JsonObject cfg = doc["cfg"];
-      if (cfg.isNull()){ send_nack(mac, hdr.seq, "BAD_REQUEST", "cfg missing"); break; }
-      if (cfg.containsKey("wifi")){
-        JsonObject w = cfg["wifi"];
-        set_pref("wifi_ssid", (const char*)w["ssid"]);
-        set_pref("wifi_pass", (const char*)w["pass"]);
-        set_pref_int("wifi_dhcp", w["dhcp"] | 1);
+      if (cfg.has_wifi){
+        if (cfg.has_wifi_ssid) set_pref("wifi_ssid", cfg.wifi_ssid);
+        if (cfg.has_wifi_pass || cfg.has_wifi_ssid) set_pref("wifi_pass", cfg.wifi_pass);
+        if (cfg.has_wifi_dhcp) set_pref_int("wifi_dhcp", cfg.wifi_dhcp);
+        Serial.printf("prov: stored wifi ssid='%s' pass_len=%d dhcp=%d\n",
+                      get_pref("wifi_ssid").c_str(),
+                      (int)get_pref("wifi_pass").length(),
+                      get_pref_int("wifi_dhcp",1));
       }
-      if (cfg.containsKey("mqtt")){
-        JsonObject m = cfg["mqtt"];
-        set_pref("mqtt_host", (const char*)m["host"]);
-        set_pref_int("mqtt_port", m["port"] | 1883);
-        set_pref("mqtt_user", (const char*)m["user"]);
-        set_pref("mqtt_pass", (const char*)m["pass"]);
-        set_pref("mqtt_topic_prefix", (const char*)m["topic_prefix"]);
-      }
-      if (cfg.containsKey("sys")){
-        JsonObject s = cfg["sys"];
-        set_pref("sys_timezone", (const char*)s["timezone"]);
-        set_pref("sys_log_level", (const char*)s["log_level"]);
+      if (cfg.has_mqtt){
+        if (cfg.has_mqtt_host) set_pref("mqtt_host", cfg.mqtt_host);
+        if (cfg.has_mqtt_port) set_pref_int("mqtt_port", cfg.mqtt_port);
+        if (cfg.has_mqtt_user) set_pref("mqtt_user", cfg.mqtt_user);
+        if (cfg.has_mqtt_pass) set_pref("mqtt_pass", cfg.mqtt_pass);
+        if (cfg.has_mqtt_topic) set_pref("mqtt_topic_prefix", cfg.mqtt_topic);
+        Serial.printf("prov: stored mqtt host='%s' port=%d user_len=%d pass_len=%d\n",
+                      get_pref("mqtt_host").c_str(),
+                      get_pref_int("mqtt_port",0),
+                      (int)get_pref("mqtt_user").length(),
+                      (int)get_pref("mqtt_pass").length());
       }
       int ver = prefs.getInt("cfg_version", 0) + 1;
       set_pref_int("cfg_version", ver);
+      mirror_to_lt_cfg();
       PbHeader resp;
       resp.msg_type = PB_WRITE_ACK;
       resp.seq = hdr.seq;
       auto frame = pb_build_frame(resp, nullptr, 0);
+      Serial.println("prov: sending write ack");
       send_raw(mac, frame);
       remember(hdr.seq, resp.msg_type, mac, frame);
       break;
@@ -202,19 +519,7 @@ static void on_recv(const uint8_t *mac, const uint8_t *data, int len){
       break;
     }
     case PB_APPLY: {
-      // load prefs into runtime (best-effort)
-      String ssid = get_pref("wifi_ssid");
-      String pass = get_pref("wifi_pass");
-      String mqtt_host = get_pref("mqtt_host");
-      int mqtt_port = get_pref_int("mqtt_port", 1883);
-      if (ssid.length()){
-        WiFi.disconnect(true);
-        delay(100);
-        WiFi.begin(ssid.c_str(), pass.length() ? pass.c_str() : nullptr);
-      }
-      if (g_mqtt){
-        g_mqtt->apply_network_settings(ssid, pass, mqtt_host, mqtt_port);
-      }
+      // send ACK immediately, keep channel stable
       PbHeader resp;
       resp.msg_type = PB_APPLY_ACK;
       resp.seq = hdr.seq;
@@ -222,7 +527,7 @@ static void on_recv(const uint8_t *mac, const uint8_t *data, int len){
       send_raw(mac, frame);
       remember(hdr.seq, resp.msg_type, mac, frame);
       g_cfg_applied = true;
-      // Optional: could trigger WiFi/MQTT reconnect here based on prefs
+      // apply on next reboot to avoid channel changes mid-session
       break;
     }
     case PB_REBOOT: {
@@ -247,4 +552,8 @@ void prov_loop(){
     g_frag_active = false;
     g_frags.clear();
   }
+}
+
+bool prov_is_active(){
+  return g_active;
 }

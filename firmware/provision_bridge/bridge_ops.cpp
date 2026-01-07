@@ -45,9 +45,13 @@ String bridge_handle_msg(const DynamicJsonDocument& doc){
     return make_err(op, id, dev, "BUSY", "bridge busy");
   }
 
-  if (op == "provision_write") return handle_provision_write(doc, g_job);
+  if (op == "provision_write") {
+    Serial.printf("bridge: provision_write id=%s dev=%s\n", id.c_str(), dev.c_str());
+    return handle_provision_write(doc, g_job);
+  }
   if (op == "provision_read") return handle_provision_read(doc, g_job);
   if (op == "reboot") return handle_reboot(doc, g_job);
+  if (op == "ping") return handle_ping(doc, g_job);
 
   return make_err(op, id, dev, "UNSUPPORTED_OP", "unknown op");
 }
