@@ -31,12 +31,17 @@
     <label>MAC
       <input id="tag_cfg_mac" placeholder="AA:BB:CC:DD:EE:FF" />
     </label>
+    <label>Tag ID
+      <input id="tag_cfg_id" placeholder="T1" value="T1" />
+    </label>
     <label>Alias
-      <input id="tag_cfg_alias" placeholder="z.B. Tag 1" />
+      <input id="tag_cfg_alias" maxlength="10" placeholder="z.B. Tag 1" />
     </label>
   </div>
   <div class="row">
     <button class="btn primary" onclick="ltTagsSendConfig(event)">An Tag senden</button>
+    <button class="btn" onclick="ltTagsProvision(event)">Provision (ESP-NOW)</button>
+    <button class="btn" onclick="ltTagsSendTagMap(event)">Tag → Anchors</button>
   </div>
   <div class="muted" style="margin-top:8px;">Verwendet zentrale WiFi/MQTT Defaults (Settings).</div>
   <pre id="tag_cfg_out" class="pre"></pre>

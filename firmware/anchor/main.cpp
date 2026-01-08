@@ -17,10 +17,13 @@ UwbAtAdapter at;
 LtDisplay ldisplay;
 
 unsigned long last_status = 0;
+unsigned long last_star = 0;
+bool star_on = false;
 unsigned long seq = 0;
 std::vector<std::pair<String, float>> range_buf;
 int last_visible_tags = 0;
 String anchor_mac;
+int uwb_anchor_index = UWB_ANCHOR_INDEX;
 constexpr int kUwbUartRx =
 #ifdef UWB_UART_RX
   UWB_UART_RX;
@@ -42,12 +45,30 @@ constexpr int kUwbUartBaud =
 #ifndef UWB_TAG_COUNT
 #define UWB_TAG_COUNT 64
 #endif
+#ifndef UWB_PAN_INDEX
+#define UWB_PAN_INDEX 0
+#endif
 #ifndef UWB_AT_CONFIG
 #define UWB_AT_CONFIG 1
 #endif
 #ifndef UWB_AT_RESTART
 #define UWB_AT_RESTART 1
 #endif
+
+static int load_anchor_index_from_nvs() {
+  Preferences prefs;
+  prefs.begin("lt_cfg", true);
+  int idx = prefs.getInt("anchor_index", UWB_ANCHOR_INDEX);
+  prefs.end();
+  return idx;
+}
+
+static void store_anchor_index_to_nvs(int idx) {
+  Preferences prefs;
+  prefs.begin("lt_cfg", false);
+  prefs.putInt("anchor_index", idx);
+  prefs.end();
+}
 
 static int parse_tag_id(const String& key) {
   if (!key.length()) return -1;
@@ -108,6 +129,36 @@ static void apply_tag_map_settings(JsonObjectConst settings) {
   }
 }
 
+static void uwb_send_cmd(const char* cmd, unsigned long wait_ms);
+
+static void apply_anchor_index_settings(JsonObjectConst settings) {
+  if (!settings.containsKey("anchor_index") && !settings.containsKey("uwb_anchor_index")) return;
+  int idx = settings.containsKey("anchor_index") ? int(settings["anchor_index"]) : int(settings["uwb_anchor_index"]);
+  if (idx < 0 || idx > 7) {
+    Serial.printf("uwb: anchor_index %d invalid\n", idx);
+    return;
+  }
+  if (idx == uwb_anchor_index) return;
+  uwb_anchor_index = idx;
+  at.set_anchor_index(idx);
+  store_anchor_index_to_nvs(idx);
+  Serial.printf("uwb: anchor_index=%d\n", idx);
+  if (kUwbUartRx >= 0 && kUwbUartTx >= 0) {
+    char cmd[64];
+    snprintf(cmd, sizeof(cmd), "AT+SETCFG=%d,1,1,1", uwb_anchor_index);
+    uwb_send_cmd(cmd, 200);
+    snprintf(cmd, sizeof(cmd), "AT+SETCAP=%d,10,1", UWB_TAG_COUNT);
+    uwb_send_cmd(cmd, 200);
+    uwb_send_cmd("AT+SETRPT=1", 200);
+    snprintf(cmd, sizeof(cmd), "AT+SETPAN=%d", UWB_PAN_INDEX);
+    uwb_send_cmd(cmd, 200);
+    uwb_send_cmd("AT+SAVE", 200);
+#if UWB_AT_RESTART
+    uwb_send_cmd("AT+RESTART", 200);
+#endif
+  }
+}
+
 static void uwb_send_cmd(const char* cmd, unsigned long wait_ms = 80) {
   Serial1.println(cmd);
   unsigned long start = millis();
@@ -140,6 +191,8 @@ void setup() {
   Serial.printf("anchor: mac=%s\n", anchor_mac.c_str());
   mqtt.load_config_from_nvs();
   load_tag_map_from_nvs();
+  uwb_anchor_index = load_anchor_index_from_nvs();
+  at.set_anchor_index(uwb_anchor_index);
   WiFi.mode(WIFI_STA);
   mqtt.begin();
   Serial.printf("anchor cfg: ssid='%s' pass_len=%d mqtt=%s:%d\n",
@@ -154,6 +207,7 @@ void setup() {
     cmdh.handle(payload.c_str(), mqtt);
   };
   cmdh.on_settings = [](JsonObjectConst settings) {
+    apply_anchor_index_settings(settings);
     apply_tag_map_settings(settings);
   };
 #ifndef SIM_RANGES
@@ -166,14 +220,16 @@ void setup() {
     at.begin(Serial1);
     Serial.printf("uwb: uart1 rx=%d tx=%d baud=%d\n", kUwbUartRx, kUwbUartTx, kUwbUartBaud);
 #if UWB_AT_CONFIG
-    Serial.printf("uwb: config anchor_index=%d tag_count=%d\n", UWB_ANCHOR_INDEX, UWB_TAG_COUNT);
+    Serial.printf("uwb: config anchor_index=%d tag_count=%d\n", uwb_anchor_index, UWB_TAG_COUNT);
     char cmd[64];
     uwb_send_cmd("AT");
-    snprintf(cmd, sizeof(cmd), "AT+SETCFG=%d,1,1,1", UWB_ANCHOR_INDEX);
+    snprintf(cmd, sizeof(cmd), "AT+SETCFG=%d,1,1,1", uwb_anchor_index);
     uwb_send_cmd(cmd, 200);
     snprintf(cmd, sizeof(cmd), "AT+SETCAP=%d,10,1", UWB_TAG_COUNT);
     uwb_send_cmd(cmd, 200);
     uwb_send_cmd("AT+SETRPT=1", 200);
+    snprintf(cmd, sizeof(cmd), "AT+SETPAN=%d", UWB_PAN_INDEX);
+    uwb_send_cmd(cmd, 200);
     uwb_send_cmd("AT+SAVE", 200);
 #if UWB_AT_RESTART
     uwb_send_cmd("AT+RESTART", 200);
@@ -268,7 +324,13 @@ void loop() {
   if (millis() - last_disp > 1000){
     int rssi = (WiFi.status() == WL_CONNECTED) ? WiFi.RSSI() : -127;
     String alias = mqtt.device_alias.length() ? mqtt.device_alias : String("Anchor");
-    ldisplay.draw(alias, "Anchor", last_visible_tags, WiFi.status() == WL_CONNECTED, rssi);
+    bool espnow_ok = prov_is_active();
+    if (espnow_ok && millis() - last_star > 500){
+      last_star = millis();
+      star_on = !star_on;
+    }
+    if (!espnow_ok) star_on = false;
+    ldisplay.draw(alias, "Anchor", last_visible_tags, WiFi.status() == WL_CONNECTED, rssi, true, espnow_ok, star_on);
     last_disp = millis();
   }
 }

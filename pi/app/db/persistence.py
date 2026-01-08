@@ -369,12 +369,61 @@ class Persistence:
         finally:
             db.close()
 
+    def get_device(self, mac: str) -> Optional[Dict[str, Any]]:
+        db = connect_db()
+        try:
+            row = db.execute(
+                "SELECT mac, role, alias, name, ip_last, fw, first_seen_at_ms, last_seen_at_ms, status, notes FROM devices WHERE mac=?",
+                (mac,),
+            ).fetchone()
+            return dict(row) if row else None
+        finally:
+            db.close()
+
     def anchors_online_count(self, window_ms: int = 8000) -> int:
         now = int(__import__("time").time() * 1000)
         db = connect_db()
         try:
             rows = db.execute("SELECT role,last_seen_at_ms FROM devices WHERE role='ANCHOR'").fetchall()
             return sum(1 for r in rows if r["last_seen_at_ms"] and (now - r["last_seen_at_ms"] <= window_ms))
+        finally:
+            db.close()
+
+    # Device settings
+    def get_device_setting(self, mac: str, key: str, default: Optional[Any] = None) -> Any:
+        db = connect_db()
+        try:
+            row = db.execute(
+                "SELECT value FROM device_settings WHERE mac=? AND key=?",
+                (mac, key),
+            ).fetchone()
+            if not row:
+                return default
+            return row["value"]
+        finally:
+            db.close()
+
+    def upsert_device_setting(self, mac: str, key: str, value: str) -> None:
+        db = connect_db()
+        try:
+            ts = int(__import__("time").time() * 1000)
+            db.execute(
+                "INSERT INTO device_settings(mac, key, value, updated_at_ms) VALUES(?,?,?,?) "
+                "ON CONFLICT(mac, key) DO UPDATE SET value=excluded.value, updated_at_ms=excluded.updated_at_ms",
+                (mac, key, value, ts),
+            )
+            db.commit()
+        finally:
+            db.close()
+
+    def list_device_settings_by_key(self, key: str) -> List[Dict[str, Any]]:
+        db = connect_db()
+        try:
+            rows = db.execute(
+                "SELECT mac, value FROM device_settings WHERE key=?",
+                (key,),
+            ).fetchall()
+            return [dict(r) for r in rows]
         finally:
             db.close()
 

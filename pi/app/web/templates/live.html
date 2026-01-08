@@ -27,9 +27,44 @@
     </div>
 
     <div class="row">
-      <button class="btn primary" onclick="ltLiveStart()">Start</button>
-      <button class="btn" onclick="ltLiveStop()">Stop</button>
+      <button class="btn primary" onclick="ltLiveStart()">Start Poll</button>
+      <button class="btn" onclick="ltLiveStop()">Stop Poll</button>
       <button class="btn" onclick="ltLiveTick()">Tick</button>
+    </div>
+    <div class="row" style="margin-top:6px;">
+      <button class="btn danger" onclick="ltSetSystemState('SETUP','live_out')">Stop LIVE</button>
+      <button class="btn" onclick="ltSetSystemState('SAFE','live_out')">SAFE</button>
+      <button class="btn" onclick="ltSetSystemState('LIVE','live_out')">LIVE</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Licht (RGB)</div>
+    <div class="formgrid">
+      <label>Fixture
+        <select id="live_patch_id"></select>
+      </label>
+    </div>
+    <div class="formgrid" style="margin-top:10px;">
+      <label>Dimmer
+        <input id="live_dim" type="range" min="0" max="255" value="255" oninput="ltLiveScheduleColor()" />
+        <span class="muted" id="live_dim_val">255</span>
+      </label>
+      <label>Rot
+        <input id="live_r" type="range" min="0" max="255" value="0" oninput="ltLiveScheduleColor()" />
+        <span class="muted" id="live_r_val">0</span>
+      </label>
+      <label>Grün
+        <input id="live_g" type="range" min="0" max="255" value="0" oninput="ltLiveScheduleColor()" />
+        <span class="muted" id="live_g_val">0</span>
+      </label>
+      <label>Blau
+        <input id="live_b" type="range" min="0" max="255" value="0" oninput="ltLiveScheduleColor()" />
+        <span class="muted" id="live_b_val">0</span>
+      </label>
+    </div>
+    <div class="row" style="margin-top:6px;">
+      <button class="btn" onclick="ltLiveBlackout()">Blackout</button>
     </div>
   </div>
 
@@ -44,6 +79,7 @@
 <script>
 document.addEventListener("DOMContentLoaded", () => {
   ltRefreshFooterState();
+  ltLiveLoadPatches();
 });
 </script>
 {% endblock %}

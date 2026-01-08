@@ -11,7 +11,7 @@
           <input id="anc_mac" required placeholder="AA:BB:CC:DD:EE:FF" />
         </label>
         <label>Alias
-          <input id="anc_alias" placeholder="z.B. Anchor 1" />
+          <input id="anc_alias" maxlength="10" placeholder="z.B. Anchor 1" />
         </label>
         <label>X (cm) <span class="req">*</span>
           <input id="anc_x" type="number" required value="0" />
@@ -25,6 +25,8 @@
       </div>
       <div class="row">
         <button class="btn primary" type="submit">Save Position</button>
+        <button class="btn" type="button" onclick="ltAnchorProvisionFromForm()">Provision (ESP-NOW)</button>
+        <button class="btn" type="button" onclick="ltAnchorResetForm()">Neuer Anchor</button>
       </div>
     </form>
     <pre class="pre" id="anchors_form_out"></pre>
@@ -50,6 +52,7 @@
         <tr>
           <th>MAC</th>
           <th>Alias</th>
+          <th>Idx</th>
           <th>Last Seen</th>
           <th>X (cm)</th>
           <th>Y (cm)</th>
@@ -57,7 +60,7 @@
           <th>Actions</th>
         </tr>
       </thead>
-      <tbody id="anchors_tbody"><tr><td colspan="7" class="muted">lade…</td></tr></tbody>
+      <tbody id="anchors_tbody"><tr><td colspan="8" class="muted">lade…</td></tr></tbody>
     </table>
   </div>
 </div>

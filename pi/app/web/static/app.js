@@ -24,6 +24,8 @@ const LT_API = {
   devices: "/api/v1/devices",
   deviceByMac: (mac) => `/api/v1/devices/${encodeURIComponent(mac)}`,
   deviceApplySettings: (mac) => `/api/v1/devices/${encodeURIComponent(mac)}/apply-settings`,
+  deviceTagMapAnchors: (mac) => `/api/v1/devices/${encodeURIComponent(mac)}/tag-map`,
+  deviceProvision: (mac) => `/api/v1/devices/${encodeURIComponent(mac)}/provision`,
   dmxConfig: "/api/v1/dmx/config",
   oflFixtures: "/api/v1/ofl/fixtures",
   oflImport: "/api/v1/ofl/fixtures/import",
@@ -31,6 +33,7 @@ const LT_API = {
   oflPatchedFixture: (id) => `/api/v1/ofl/patched-fixtures/${id}`,
   oflTestOn: (id) => `/api/v1/ofl/patched-fixtures/${id}/test/light-on`,
   oflTestOff: (id) => `/api/v1/ofl/patched-fixtures/${id}/test/light-off`,
+  oflTestColor: (id) => `/api/v1/ofl/patched-fixtures/${id}/test/color`,
 };
 
 function $(id){ return document.getElementById(id); }
@@ -214,6 +217,19 @@ async function ltRefreshFooterState(){
   if (el) el.textContent = "state: " + nz(st, "unknown");
 }
 
+async function ltSetSystemState(state, outId){
+  const desired = (state || "").toUpperCase();
+  if (!desired) return;
+  const out = outId ? $(outId) : null;
+  if (out) out.textContent = `set state -> ${desired}…`;
+  const r = await ltFetchJson(LT_API.state, { method: "POST", body: JSON.stringify({ state: desired }) });
+  if (out) out.textContent = JSON.stringify((r.json || r), null, 2);
+  if (!r.ok){
+    alert("State-Wechsel fehlgeschlagen.");
+  }
+  ltRefreshFooterState();
+}
+
 async function ltAssertNotLive(actionName){
   const st = await ltGetSystemState();
   if (st === "LIVE") {
@@ -259,61 +275,148 @@ async function ltSetAnchorPosition(ev){
   if (!await ltAssertNotLive("Set Anchor Position")) return;
 
   const mac = $("anc_mac").value.trim();
+  const alias = ($("anc_alias") ? $("anc_alias").value : "").trim();
   const x_cm = Number($("anc_x").value);
   const y_cm = Number($("anc_y").value);
   const z_cm = Number($("anc_z").value);
 
   const payload = { mac, x_cm: Math.trunc(x_cm), y_cm: Math.trunc(y_cm), z_cm: Math.trunc(z_cm) };
+  if (alias) payload.alias = alias;
 
   const out = $("anchors_form_out");
   out.textContent = "saving…";
   const r = await ltFetchJson(LT_API.anchorsUpsertPos, { method: "POST", body: JSON.stringify(payload) });
   out.textContent = JSON.stringify((r.json || r), null, 2);
+  if (r.ok) ltLoadAnchors();
+}
+
+function ltAnchorSetMacLock(locked){
+  const m = $("anc_mac");
+  if (!m) return;
+  m.readOnly = !!locked;
+  m.dataset.locked = locked ? "1" : "0";
+  m.title = locked ? "MAC ist fix im Edit" : "";
+}
+
+function ltAnchorResetForm(){
+  const m = $("anc_mac");
+  const a = $("anc_alias");
+  const xEl = $("anc_x");
+  const yEl = $("anc_y");
+  const zEl = $("anc_z");
+  if (m) m.value = "";
+  if (a) a.value = "";
+  if (xEl) xEl.value = "0";
+  if (yEl) yEl.value = "0";
+  if (zEl) zEl.value = "0";
+  ltAnchorSetMacLock(false);
+  m?.focus();
+}
+
+function ltAnchorPrefill(mac, aliasEnc, x, y, z){
+  const m = $("anc_mac");
+  const a = $("anc_alias");
+  const xEl = $("anc_x");
+  const yEl = $("anc_y");
+  const zEl = $("anc_z");
+  const alias = decodeURIComponent(aliasEnc || "");
+  if (m) m.value = ltFormatMacColon(mac || "");
+  if (a) a.value = alias;
+  if (xEl) xEl.value = String(x ?? 0);
+  if (yEl) yEl.value = String(y ?? 0);
+  if (zEl) zEl.value = String(z ?? 0);
+  ltAnchorSetMacLock(true);
+  m?.focus();
 }
 
 // ---------------- Anchors List ----------------
 async function ltLoadAnchors(){
   const body = $("anchors_tbody");
   if (!body) return;
-  body.innerHTML = `<tr><td colspan="7" class="muted">lade…</td></tr>`;
+  body.innerHTML = `<tr><td colspan="8" class="muted">lade…</td></tr>`;
   const r = await ltFetchJson(LT_API.anchors);
   if (!r.ok || !r.json){
-    body.innerHTML = `<tr><td colspan="7">Fehler: ${escapeHtml(JSON.stringify(r.json))}</td></tr>`;
+    body.innerHTML = `<tr><td colspan="8">Fehler: ${escapeHtml(JSON.stringify(r.json))}</td></tr>`;
     return;
   }
   const list = (r.json && r.json.anchors) ? r.json.anchors : [];
   if (!list.length){
-    body.innerHTML = `<tr><td colspan="7" class="muted">Keine Anchors.</td></tr>`;
+    body.innerHTML = `<tr><td colspan="8" class="muted">Keine Anchors.</td></tr>`;
     return;
   }
   body.innerHTML = list.map(a => {
     const mac = a.mac || '';
     const alias = a.alias || '';
-    const last = a.last_seen_at_ms || '';
+    const aliasEnc = encodeURIComponent(alias || "");
+    const idx = (a.anchor_index === undefined || a.anchor_index === null) ? "" : String(a.anchor_index);
+    const lastRaw = a.last_seen_at_ms;
+    const last = lastRaw ? new Date(Number(lastRaw)).toLocaleString() : "";
     const pos = a.position_cm || {};
+    const px = (pos.x === undefined || pos.x === null) ? 0 : pos.x;
+    const py = (pos.y === undefined || pos.y === null) ? 0 : pos.y;
+    const pz = (pos.z === undefined || pos.z === null) ? 0 : pos.z;
     return `
       <tr>
         <td>${escapeHtml(mac)}</td>
         <td>${escapeHtml(alias)}</td>
+        <td>${escapeHtml(idx)}</td>
         <td>${escapeHtml(String(last))}</td>
         <td>${escapeHtml(String(nz(pos.x,'?')))}</td>
         <td>${escapeHtml(String(nz(pos.y,'?')))}</td>
         <td>${escapeHtml(String(nz(pos.z,'?')))}</td>
         <td class="row">
-          <button class="btn" onclick="ltSendAnchorConfig('${mac}','${alias.replace(/'/g,'&#39;')}')">Send Config</button>
+          <button class="btn" onclick="ltSendAnchorConfig('${mac}','${aliasEnc}')">Send Config</button>
+          <button class="btn" onclick="ltProvisionAnchorConfig('${mac}','${aliasEnc}')">Provision (ESP-NOW)</button>
+          <button class="btn" onclick="ltAnchorPrefill('${mac}','${aliasEnc}',${px},${py},${pz})">Edit</button>
+          <button class="btn danger" onclick="ltDeleteAnchor('${mac}')">Delete</button>
         </td>
       </tr>
     `;
   }).join('');
 }
 
-function ltSendAnchorConfig(mac, alias){
+async function ltDeleteAnchor(mac){
+  if (!await ltAssertNotLive("Delete Anchor")) return;
+  if (!confirm(`Anchor ${mac} wirklich löschen?`)) return;
+  const out = $("anchors_form_out");
+  if (out) out.textContent = "lösche…";
+  const r = await ltFetchJson(LT_API.anchorByMac(mac), { method: "DELETE" });
+  if (out) out.textContent = JSON.stringify((r.json || r), null, 2);
+  if (!r.ok) {
+    alert("Löschen fehlgeschlagen");
+    return;
+  }
+  ltLoadAnchors();
+}
+
+function ltSendAnchorConfig(mac, aliasEnc){
   const formMacEl = $("anc_mac");
   const formAliasEl = $("anc_alias");
   const formMac = formMacEl ? formMacEl.value : "";
   const formAlias = formAliasEl ? formAliasEl.value : "";
-  const useAlias = ltNormalizeMac(formMac) === ltNormalizeMac(mac) && formAlias ? formAlias : alias;
+  const rowAlias = decodeURIComponent(aliasEnc || "");
+  const useAlias = ltNormalizeMac(formMac) === ltNormalizeMac(mac) && formAlias ? formAlias : rowAlias;
   ltSendDeviceConfig(mac, useAlias, $("anchors_form_out"));
+}
+
+function ltProvisionAnchorConfig(mac, aliasEnc){
+  const formMacEl = $("anc_mac");
+  const formAliasEl = $("anc_alias");
+  const formMac = formMacEl ? formMacEl.value : "";
+  const formAlias = formAliasEl ? formAliasEl.value : "";
+  const rowAlias = decodeURIComponent(aliasEnc || "");
+  const useAlias = ltNormalizeMac(formMac) === ltNormalizeMac(mac) && formAlias ? formAlias : rowAlias;
+  ltProvisionDeviceConfig(mac, useAlias, $("anchors_form_out"));
+}
+
+function ltAnchorProvisionFromForm(){
+  const mac_raw = ($("anc_mac") ? $("anc_mac").value : "").trim();
+  const mac = ltNormalizeMac(mac_raw);
+  const out = $("anchors_form_out");
+  if (!mac_raw){ alert("MAC fehlt"); return; }
+  if (!mac){ alert("MAC-Format ungültig"); return; }
+  const alias = ($("anc_alias") ? $("anc_alias").value : "").trim();
+  ltProvisionDeviceConfig(mac, alias, out);
 }
 
 // ---------------- Fixtures ----------------
@@ -458,6 +561,41 @@ async function ltCalibrationPrecheck(){
   if ($("cal_anchors")) $("cal_anchors").textContent = String(nz(r.json.anchors_online, "unknown"));
 }
 
+async function ltCalibrationLoadTags(){
+  const sel = $("cal_tag_mac");
+  if (!sel) return;
+  const prev = sel.value;
+  sel.innerHTML = `<option value="">lade…</option>`;
+  const r = await ltFetchJson(LT_API.devices);
+  if (!r.ok || !r.json){
+    sel.innerHTML = `<option value="">Fehler</option>`;
+    return;
+  }
+  const devices = r.json.devices || [];
+  const tags = devices.filter(d => (d.role || "").toUpperCase() === "TAG");
+  const list = tags.length ? tags : devices;
+  if (!list.length){
+    sel.innerHTML = `<option value="">Keine Tags</option>`;
+    return;
+  }
+  sel.innerHTML = list.map(d => {
+    const mac = ltFormatMacColon(d.mac || "");
+    if (!mac) return "";
+    const alias = (d.alias || "").trim();
+    const label = alias ? `${alias} (${mac})` : mac;
+    return `<option value="${mac}">${escapeHtml(label)}</option>`;
+  }).filter(Boolean).join("\n");
+  if (prev){
+    const normalized = ltFormatMacColon(prev);
+    for (const opt of sel.options){
+      if (opt.value === normalized){
+        sel.value = normalized;
+        break;
+      }
+    }
+  }
+}
+
 async function ltUpdateCalibrationStatus(){
   const out = $("cal_out");
   const r = await ltFetchJson(LT_API.calibrationStatus || '/api/v1/calibration/status');
@@ -469,6 +607,8 @@ async function ltUpdateCalibrationStatus(){
   const s = r.json;
   if ($("cal_state")) $("cal_state").textContent = s.running ? 'RUNNING' : 'IDLE';
   if (out) out.textContent = JSON.stringify(s, null, 2);
+  const runIdInput = $("cal_run_id");
+  if (runIdInput && s.run_id && !runIdInput.value.trim()) runIdInput.value = String(s.run_id);
 
   // show commit/discard when finished run present
   if (s.running && s.run_id){
@@ -556,6 +696,8 @@ async function ltCalibrationLoadSelectedRun(){
 
 // ---------------- Live Monitor ----------------
 let ltLiveTimer = null;
+let ltLiveColorTimer = null;
+let LT_LIVE_PATCH_CACHE = [];
 
 function ltLiveStart(){
   ltLiveStop();
@@ -611,6 +753,61 @@ async function ltLiveTick(){
   if ($("live_tracking")) $("live_tracking").textContent = status;
   if ($("live_age")) $("live_age").textContent = String(age);
   if ($("live_pos")) $("live_pos").textContent = p;
+}
+
+async function ltLiveLoadPatches(){
+  const sel = $("live_patch_id");
+  if (!sel) return;
+  const r = await ltFetchJson(LT_API.oflPatchedFixtures);
+  if (!r.ok || !r.json){
+    sel.innerHTML = `<option value="">Fehler</option>`;
+    return;
+  }
+  const list = r.json.patched_fixtures || [];
+  LT_LIVE_PATCH_CACHE = list;
+  if (!list.length){
+    sel.innerHTML = `<option value="">Keine Fixtures</option>`;
+    return;
+  }
+  sel.innerHTML = list.map(p => {
+    const fx = p.fixture || {};
+    const label = `${p.name} (${fx.manufacturer || "?"} ${fx.model || "?"})`;
+    return `<option value="${p.id}">${escapeHtml(label)}</option>`;
+  }).join("");
+}
+
+function ltLiveColorRead(){
+  const dim = Number($("live_dim") ? $("live_dim").value : 0);
+  const r = Number($("live_r") ? $("live_r").value : 0);
+  const g = Number($("live_g") ? $("live_g").value : 0);
+  const b = Number($("live_b") ? $("live_b").value : 0);
+  if ($("live_dim_val")) $("live_dim_val").textContent = String(dim);
+  if ($("live_r_val")) $("live_r_val").textContent = String(r);
+  if ($("live_g_val")) $("live_g_val").textContent = String(g);
+  if ($("live_b_val")) $("live_b_val").textContent = String(b);
+  return { dim, r, g, b };
+}
+
+function ltLiveScheduleColor(){
+  ltLiveColorRead();
+  if (ltLiveColorTimer) clearTimeout(ltLiveColorTimer);
+  ltLiveColorTimer = setTimeout(ltLiveSendColor, 80);
+}
+
+async function ltLiveSendColor(){
+  const sel = $("live_patch_id");
+  const pid = sel ? Number(sel.value || 0) : 0;
+  if (!pid) return;
+  const payload = ltLiveColorRead();
+  await ltFetchJson(LT_API.oflTestColor(pid), { method: "POST", body: JSON.stringify(payload) });
+}
+
+function ltLiveBlackout(){
+  if ($("live_dim")) $("live_dim").value = 0;
+  if ($("live_r")) $("live_r").value = 0;
+  if ($("live_g")) $("live_g").value = 0;
+  if ($("live_b")) $("live_b").value = 0;
+  ltLiveScheduleColor();
 }
 
 // ---------------- Logs / Events ----------------
@@ -708,33 +905,57 @@ async function ltLoadTags(){
   }
   body.innerHTML = filtered.map(d => {
     const mac = d.mac || "";
+    const macDisplay = ltFormatMacColon(mac);
     const alias = d.alias || "";
+    const aliasEnc = encodeURIComponent(alias || "");
     const status = d.status || "";
-    const last = d.last_seen_at_ms ? new Date(d.last_seen_at_ms).toLocaleString() : "";
+    const lastRaw = d.last_seen_at_ms;
+    const last = lastRaw ? new Date(Number(lastRaw)).toLocaleString() : "";
     return `
       <tr>
-        <td>${escapeHtml(mac)}</td>
+        <td>${escapeHtml(macDisplay)}</td>
         <td>${escapeHtml(alias)}</td>
         <td>${escapeHtml(status)}</td>
         <td>${escapeHtml(last)}</td>
         <td class="row">
-          <button class="btn" onclick="ltSendTagConfig('${mac}','${alias.replace(/'/g,'&#39;')}')">Send Config</button>
-          <button class="btn" onclick="ltTagPrefill('${mac}', '${alias.replace(/'/g,'&#39;')}')">Edit</button>
+          <button class="btn" onclick="ltSendTagConfig('${mac}','${aliasEnc}')">Send Config</button>
+          <button class="btn" onclick="ltProvisionTagConfig('${mac}','${aliasEnc}')">Provision (ESP-NOW)</button>
+          <button class="btn" onclick="ltSendTagMapToAnchors('${mac}')">Tag → Anchors</button>
+          <button class="btn" onclick="ltTagPrefill('${mac}', '${aliasEnc}')">Edit</button>
         </td>
       </tr>
     `;
   }).join("");
 }
 
-function ltTagPrefill(mac, alias){
+function ltTagPrefill(mac, aliasEnc){
   const m = $("tag_cfg_mac");
   const a = $("tag_cfg_alias");
-  if (m) m.value = ltNormalizeMac(mac);
+  const alias = decodeURIComponent(aliasEnc || "");
+  if (m) m.value = ltFormatMacColon(mac);
   if (a) a.value = alias;
 }
 
-function ltSendTagConfig(mac, alias){
+function ltSendTagConfig(mac, aliasEnc){
+  const alias = decodeURIComponent(aliasEnc || "");
   ltSendDeviceConfig(mac, alias, $("tag_cfg_out"));
+}
+
+function ltSendTagMapToAnchors(mac){
+  const out = $("tag_cfg_out");
+  const tagId = $("tag_cfg_id") ? $("tag_cfg_id").value.trim() : "";
+  const payload = tagId ? { tag_id: tagId } : {};
+  if (out) out.textContent = "sende tag_map…";
+  ltFetchJson(LT_API.deviceTagMapAnchors(mac), { method: "POST", body: JSON.stringify(payload) })
+    .then(r => {
+      if (out) out.textContent = JSON.stringify((r.json || r), null, 2);
+      if (!r.ok) alert("Tag-Map senden fehlgeschlagen. Siehe Ausgabe.");
+    });
+}
+
+function ltProvisionTagConfig(mac, aliasEnc){
+  const alias = decodeURIComponent(aliasEnc || "");
+  ltProvisionDeviceConfig(mac, alias, $("tag_cfg_out"));
 }
 
 async function ltTagsSendConfig(ev){
@@ -746,6 +967,60 @@ async function ltTagsSendConfig(ev){
   if (!mac){ alert("MAC-Format ungültig"); return; }
   const alias = ( $("tag_cfg_alias") ? $("tag_cfg_alias").value : "" ).trim();
   ltSendDeviceConfig(mac, alias, out);
+}
+
+async function ltTagsProvision(ev){
+  if (ev && ev.preventDefault) ev.preventDefault();
+  const mac_raw = ( $("tag_cfg_mac") ? $("tag_cfg_mac").value : "" ).trim();
+  const mac = ltNormalizeMac(mac_raw);
+  const out = $("tag_cfg_out");
+  if (!mac_raw){ alert("MAC fehlt"); return; }
+  if (!mac){ alert("MAC-Format ungültig"); return; }
+  const alias = ( $("tag_cfg_alias") ? $("tag_cfg_alias").value : "" ).trim();
+  ltProvisionDeviceConfig(mac, alias, out);
+}
+
+async function ltTagsSendTagMap(ev){
+  if (ev && ev.preventDefault) ev.preventDefault();
+  const mac_raw = ( $("tag_cfg_mac") ? $("tag_cfg_mac").value : "" ).trim();
+  const mac = ltNormalizeMac(mac_raw);
+  const out = $("tag_cfg_out");
+  if (!mac_raw){ alert("MAC fehlt"); return; }
+  if (!mac){ alert("MAC-Format ungültig"); return; }
+  const tagId = $("tag_cfg_id") ? $("tag_cfg_id").value.trim() : "";
+  const payload = tagId ? { tag_id: tagId } : {};
+  if (out) out.textContent = "sende tag_map…";
+  const r = await ltFetchJson(LT_API.deviceTagMapAnchors(mac), { method: "POST", body: JSON.stringify(payload) });
+  if (out) out.textContent = JSON.stringify((r.json || r), null, 2);
+  if (!r.ok) alert("Tag-Map senden fehlgeschlagen. Siehe Ausgabe.");
+}
+
+async function ltProvisionDeviceConfig(mac, alias, out){
+  const ssid = LT_WIFI_DEFAULTS.ssid;
+  const pass = LT_WIFI_DEFAULTS.pass;
+  const host = LT_MQTT_DEFAULTS.host;
+  const port = LT_MQTT_DEFAULTS.port;
+
+  if (!ssid || !host || !port){
+    alert("WiFi/MQTT Defaults fehlen. Bitte Settings prüfen.");
+    return;
+  }
+
+  const payload = {
+    wifi_ssid: ssid,
+    wifi_pass: pass,
+    mqtt_host: host,
+    mqtt_port: port,
+    apply: true,
+    reboot: true,
+    timeout_ms: 8000,
+  };
+  if (alias) payload.alias = alias;
+
+  if (out) out.textContent = "provisioning…";
+  const r = await ltFetchJson(LT_API.deviceProvision(mac), { method: "POST", body: JSON.stringify(payload) });
+  if (out) out.textContent = JSON.stringify((r.json || r), null, 2);
+  if (!r.ok) alert("Provisioning fehlgeschlagen. Siehe Ausgabe.");
 }
 
 // ---------------- Settings (Key/Value) ----------------
@@ -818,6 +1093,30 @@ async function ltSaveSettings(){
 // ---------------- OFL Fixture Library ----------------
 let OFL_FIX_CACHE = [];
 let OFL_PATCH_CACHE = [];
+
+function ltOflParseOverrides(raw){
+  if (!raw) return {};
+  if (typeof raw === "object") return raw;
+  if (typeof raw === "string"){
+    try { return JSON.parse(raw); } catch (e) {}
+  }
+  return {};
+}
+
+function ltOflReadOverrides(){
+  const readNum = (id) => {
+    const el = $(id);
+    const n = Number(el ? el.value : 0);
+    return Number.isFinite(n) ? Math.trunc(n) : 0;
+  };
+  return {
+    pos_x_cm: readNum("ofl_pos_x"),
+    pos_y_cm: readNum("ofl_pos_y"),
+    pos_z_cm: readNum("ofl_pos_z"),
+    invert_pan: ($("ofl_inv_pan") && $("ofl_inv_pan").checked) ? 1 : 0,
+    invert_tilt: ($("ofl_inv_tilt") && $("ofl_inv_tilt").checked) ? 1 : 0,
+  };
+}
 
 async function ltOflUpload(ev){
   ev.preventDefault();
@@ -907,6 +1206,7 @@ async function ltOflCreatePatch(){
     mode_name: ($("ofl_sel_mode") ? $("ofl_sel_mode").value : "") || ($("patch_mode") ? $("patch_mode").value : ""),
     universe: Number(($("ofl_uni") ? $("ofl_uni").value : "") || ($("patch_uni") ? $("patch_uni").value : 0)),
     dmx_address: Number(($("ofl_addr") ? $("ofl_addr").value : "") || ($("patch_addr") ? $("patch_addr").value : 1)),
+    overrides_json: ltOflReadOverrides(),
   };
   const r = await ltFetchJson(LT_API.oflPatchedFixtures, { method: "POST", body: JSON.stringify(payload) });
   if (out) out.textContent = JSON.stringify((r.json || r), null, 2);
@@ -918,20 +1218,24 @@ async function ltOflCreatePatch(){
 async function ltOflLoadActiveTable(){
   const body = $("ofl_active_tbody");
   if (!body) return;
-  body.innerHTML = `<tr><td colspan="8" class="muted">lade…</td></tr>`;
+  body.innerHTML = `<tr><td colspan="10" class="muted">lade…</td></tr>`;
   const r = await ltFetchJson(LT_API.oflPatchedFixtures);
   if (!r.ok || !r.json){
-    body.innerHTML = `<tr><td colspan="8">Fehler: ${escapeHtml(JSON.stringify((r.json || r)))}</td></tr>`;
+    body.innerHTML = `<tr><td colspan="10">Fehler: ${escapeHtml(JSON.stringify((r.json || r)))}</td></tr>`;
     return;
   }
   const list = r.json.patched_fixtures || [];
   OFL_PATCH_CACHE = list;
   if (!list.length){
-    body.innerHTML = `<tr><td colspan="8" class="muted">Keine aktiven Fixtures.</td></tr>`;
+    body.innerHTML = `<tr><td colspan="10" class="muted">Keine aktiven Fixtures.</td></tr>`;
     return;
   }
   body.innerHTML = list.map(p => {
     const fx = p.fixture || {};
+    const pos = p.position_cm || {};
+    const posLabel = `${nz(pos.x, 0)}, ${nz(pos.y, 0)}, ${nz(pos.z, 0)}`;
+    const inv = p.invert || {};
+    const invLabel = `${inv.pan ? "Pan" : ""}${(inv.pan && inv.tilt) ? "/" : ""}${inv.tilt ? "Tilt" : ""}` || "—";
     return `<tr>
       <td>${p.id}</td>
       <td>${escapeHtml(p.name)}</td>
@@ -939,6 +1243,8 @@ async function ltOflLoadActiveTable(){
       <td>${escapeHtml(p.mode_name)}</td>
       <td>${escapeHtml(String(p.universe))}</td>
       <td>${escapeHtml(String(p.dmx_address))}</td>
+      <td>${escapeHtml(posLabel)}</td>
+      <td>${escapeHtml(invLabel)}</td>
       <td class="row"><button class="btn" onclick="ltOflTest(${p.id}, true)">Light ON</button><button class="btn" onclick="ltOflTest(${p.id}, false)">Light OFF</button></td>
       <td><a class="btn" href="/ui/patch/${p.id}/edit">Edit</a></td>
     </tr>`;
@@ -979,6 +1285,12 @@ async function ltOflLoadPatchForEdit(id){
   if ($("ofl_name")) $("ofl_name").value = patch.name || "";
   if ($("ofl_uni")) $("ofl_uni").value = patch.universe;
   if ($("ofl_addr")) $("ofl_addr").value = patch.dmx_address;
+  const overrides = ltOflParseOverrides(patch.overrides_json);
+  if ($("ofl_pos_x")) $("ofl_pos_x").value = nz(overrides.pos_x_cm, 0);
+  if ($("ofl_pos_y")) $("ofl_pos_y").value = nz(overrides.pos_y_cm, 0);
+  if ($("ofl_pos_z")) $("ofl_pos_z").value = nz(overrides.pos_z_cm, 0);
+  if ($("ofl_inv_pan")) $("ofl_inv_pan").checked = Boolean(overrides.invert_pan);
+  if ($("ofl_inv_tilt")) $("ofl_inv_tilt").checked = Boolean(overrides.invert_tilt);
 }
 
 async function ltOflUpdatePatch(id){
@@ -991,6 +1303,7 @@ async function ltOflUpdatePatch(id){
     mode_name: $("ofl_sel_mode") ? $("ofl_sel_mode").value : "",
     universe: Number($("ofl_uni") ? $("ofl_uni").value : 0),
     dmx_address: Number($("ofl_addr") ? $("ofl_addr").value : 1),
+    overrides_json: ltOflReadOverrides(),
   };
   const r = await ltFetchJson(LT_API.oflPatchedFixture(id), { method: "PUT", body: JSON.stringify(payload) });
   if (out) out.textContent = JSON.stringify((r.json || r), null, 2);
@@ -1049,6 +1362,8 @@ window.ltRefreshFooterState = ltRefreshFooterState;
 window.ltRefreshDashboard = ltRefreshDashboard;
 
 window.ltSetAnchorPosition = ltSetAnchorPosition;
+window.ltAnchorPrefill = ltAnchorPrefill;
+window.ltDeleteAnchor = ltDeleteAnchor;
 window.ltLoadSystemDefaults = ltLoadSystemDefaults;
 window.ltSaveSystemDefaults = ltSaveSystemDefaults;
 window.ltLoadWifiDefaults = ltLoadSystemDefaults;
@@ -1060,6 +1375,7 @@ window.ltUpdateFixture = ltUpdateFixture;
 window.ltDeleteFixture = ltDeleteFixture;
 
 window.ltCalibrationPrecheck = ltCalibrationPrecheck;
+window.ltCalibrationLoadTags = ltCalibrationLoadTags;
 window.ltCalibrationStart = ltCalibrationStart;
 window.ltCalibrationAbort = ltCalibrationAbort;
 window.ltCalibrationLoadRuns = ltCalibrationLoadRuns;
@@ -1068,6 +1384,7 @@ window.ltCalibrationLoadSelectedRun = ltCalibrationLoadSelectedRun;
 window.ltLiveStart = ltLiveStart;
 window.ltLiveStop = ltLiveStop;
 window.ltLiveTick = ltLiveTick;
+window.ltSetSystemState = ltSetSystemState;
 
 window.ltLoadEvents = ltLoadEvents;
 window.ltLoadSettings = ltLoadSettings;

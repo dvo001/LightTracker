@@ -19,6 +19,13 @@ def build_frame(fixtures_commands, profiles):
     universe[0] = 0x00  # start code
 
     for cmd in fixtures_commands:
+        channel_values = cmd.get("channel_values") if isinstance(cmd, dict) else None
+        if channel_values:
+            for ch, val in channel_values.items():
+                if ch < 1 or ch > 512:
+                    continue
+                universe[ch] = max(0, min(255, int(val)))
+            continue
         base = int(cmd["dmx_base_addr"])
         profile_key = cmd["profile_key"]
         profile = profiles.get(profile_key, {})

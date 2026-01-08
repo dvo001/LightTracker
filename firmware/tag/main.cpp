@@ -41,6 +41,9 @@ constexpr int kUwbUartBaud =
 #ifndef UWB_TAG_COUNT
 #define UWB_TAG_COUNT 64
 #endif
+#ifndef UWB_PAN_INDEX
+#define UWB_PAN_INDEX 0
+#endif
 #ifndef UWB_AT_CONFIG
 #define UWB_AT_CONFIG 1
 #endif
@@ -130,6 +133,8 @@ void setup() {
     snprintf(cmd, sizeof(cmd), "AT+SETCAP=%d,10,1", UWB_TAG_COUNT);
     uwb_send_cmd(cmd, 200);
     uwb_send_cmd("AT+SETRPT=1", 200);
+    snprintf(cmd, sizeof(cmd), "AT+SETPAN=%d", UWB_PAN_INDEX);
+    uwb_send_cmd(cmd, 200);
     uwb_send_cmd("AT+SAVE", 200);
 #if UWB_AT_RESTART
     uwb_send_cmd("AT+RESTART", 200);

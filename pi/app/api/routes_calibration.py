@@ -36,9 +36,31 @@ class CalStart(BaseModel):
 @router.get('/calibration/status')
 def calibration_status(request: Request):
     cm = getattr(request.app.state, 'calibration_manager', None)
-    if not cm:
-        return {'running': False, 'run_id': None, 'tag_mac': None, 'started_at_ms': None, 'progress': {}}
-    return cm.status()
+    if cm and cm.active:
+        return cm.status()
+    # no active run -> return last finished run (if any) for commit/discard
+    db = connect_db()
+    try:
+        ensure_calibration_table(db)
+        row = db.execute(
+            "SELECT id, tag_mac, started_at_ms, ended_at_ms, result, status "
+            "FROM calibration_runs WHERE status='finished' ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        if row:
+            r = dict(row)
+            return {
+                "running": False,
+                "run_id": r.get("id"),
+                "tag_mac": r.get("tag_mac"),
+                "started_at_ms": r.get("started_at_ms"),
+                "ended_at_ms": r.get("ended_at_ms"),
+                "result": r.get("result"),
+                "status": r.get("status"),
+                "progress": {},
+            }
+    finally:
+        db.close()
+    return {'running': False, 'run_id': None, 'tag_mac': None, 'started_at_ms': None, 'progress': {}}
 
 
 @router.post('/calibration/start')

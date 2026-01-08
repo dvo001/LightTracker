@@ -19,7 +19,9 @@ class StateManager:
         mqtt_ok = str(self.p.get_setting("mqtt.ok", "false")).lower() == "true"
         anchors_online = self.p.anchors_online_count()
         min_anchors = int(self.p.get_setting("guards.min_anchors_online", 4) or 4)
-        fixtures_enabled = any(f.get("enabled", 0) for f in self.p.list_fixtures())
+        has_fixtures = any(f.get("enabled", 0) for f in self.p.list_fixtures())
+        has_patched = bool(self.p.list_patched_fixtures())
+        fixtures_enabled = has_fixtures or has_patched
         ready = mqtt_ok and anchors_online >= min_anchors and fixtures_enabled
         return {
             "ready": ready,
@@ -27,4 +29,5 @@ class StateManager:
             "anchors_online": anchors_online,
             "min_anchors": min_anchors,
             "fixtures_enabled": fixtures_enabled,
+            "patched_fixtures": has_patched,
         }

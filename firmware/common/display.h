@@ -54,8 +54,8 @@ public:
     oled.setTextSize(2);
     oled.setCursor(0, 18);
     String aname = alias.length() ? alias : String(mode);
-    if (aname.length() > 12) {
-      aname = aname.substring(0, 11) + "...";
+    if (aname.length() > 10) {
+      aname = aname.substring(0, 7) + "...";
     }
     oled.println(aname);
 

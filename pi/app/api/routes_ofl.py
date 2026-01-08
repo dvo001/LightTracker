@@ -199,6 +199,13 @@ class PatchIn(BaseModel):
     overrides_json: Optional[Dict[str, Any]] = None
 
 
+class ColorPayload(BaseModel):
+    dim: int = Field(255, ge=0, le=255)
+    r: int = Field(0, ge=0, le=255)
+    g: int = Field(0, ge=0, le=255)
+    b: int = Field(0, ge=0, le=255)
+
+
 @router.post("/ofl/patched-fixtures")
 def create_patched_fixture(body: PatchIn):
     _assert_not_live()
@@ -229,6 +236,21 @@ def list_patched_fixtures():
     out = []
     for r in rows:
         fx = fixtures.get(r["fixture_id"])
+        overrides = {}
+        if r.get("overrides_json"):
+            try:
+                overrides = json.loads(r["overrides_json"])
+            except Exception:
+                overrides = {}
+        pos = {
+            "x": overrides.get("pos_x_cm", 0),
+            "y": overrides.get("pos_y_cm", 0),
+            "z": overrides.get("pos_z_cm", 0),
+        }
+        invert = {
+            "pan": bool(overrides.get("invert_pan", 0)),
+            "tilt": bool(overrides.get("invert_tilt", 0)),
+        }
         out.append({
             "id": r["id"],
             "name": r["name"],
@@ -236,6 +258,8 @@ def list_patched_fixtures():
             "universe": r["universe"],
             "dmx_address": r["dmx_address"],
             "fixture": {"id": r["fixture_id"], "manufacturer": fx["manufacturer"] if fx else None, "model": fx["model"] if fx else None},
+            "position_cm": pos,
+            "invert": invert,
         })
     return {"patched_fixtures": out}
 
@@ -368,3 +392,16 @@ def patched_fixture_light_off(pid: int, request: Request):
     _send_test_frame(request, row["universe"], channel_values)
     writes = [{"channel": ch, "value": val} for ch, val in sorted(channel_values.items())]
     return {"patched_fixture_id": pid, "writes": writes, "warnings": warnings}
+
+
+@router.post("/ofl/patched-fixtures/{pid}/test/color")
+def patched_fixture_set_color(pid: int, body: ColorPayload, request: Request):
+    p = get_persistence()
+    row = p.get_patched_fixture(pid)
+    if not row:
+        raise HTTPException(status_code=404, detail="patched fixture not found")
+    eng = getattr(request.app.state, "dmx_engine", None)
+    if not eng:
+        raise HTTPException(status_code=503, detail="dmx engine not available")
+    eng.set_live_color(pid, body.r, body.g, body.b, body.dim)
+    return {"ok": True, "patched_fixture_id": pid, "color": body.dict()}

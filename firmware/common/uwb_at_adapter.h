@@ -40,11 +40,16 @@ public:
   int parse_errors = 0;
   using RangeCallback = std::function<void(const String& tag_mac, float d_m)>;
   RangeCallback on_range = nullptr;
+  int anchor_index = UWB_ANCHOR_INDEX;
   String tag_map[8];
 
   void begin(Stream& s) {
     serial = &s;
     serial->setTimeout(20);
+  }
+
+  void set_anchor_index(int idx) {
+    anchor_index = idx;
   }
 
   void set_tag_mac(int tid, const String& mac) {
@@ -61,6 +66,9 @@ public:
       String line = serial->readStringUntil('\n');
       line.trim();
       if (!line.length()) continue;
+#ifdef UWB_AT_DEBUG
+      Serial.printf("uwb: %s\n", line.c_str());
+#endif
       if (line.indexOf("AT+RANGE") < 0) continue;
       int tid = -1;
       int ranges[8] = {0};
@@ -122,9 +130,9 @@ private:
     return parsed == 8;
   }
 
-  static int pick_range_cm(const int ranges[8]) {
-    if (UWB_ANCHOR_INDEX >= 0 && UWB_ANCHOR_INDEX < 8) {
-      return ranges[UWB_ANCHOR_INDEX];
+  int pick_range_cm(const int ranges[8]) const {
+    if (anchor_index >= 0 && anchor_index < 8) {
+      return ranges[anchor_index];
     }
     for (int i = 0; i < 8; i++) {
       if (ranges[i] > 0) return ranges[i];

@@ -11,8 +11,8 @@
     </div>
 
     <div class="formgrid" style="margin-top:10px;">
-      <label>tag_mac <span class="req">*</span>
-        <input id="cal_tag_mac" placeholder="AA:BB:CC:DD:EE:FF" required />
+      <label>Tag <span class="req">*</span>
+        <select id="cal_tag_mac" required></select>
       </label>
       <label>duration_ms
         <input id="cal_duration" type="number" value="6000" min="1000" />
@@ -63,6 +63,7 @@
 <script>
 document.addEventListener("DOMContentLoaded", () => {
   ltRefreshFooterState();
+  ltCalibrationLoadTags();
   ltCalibrationPrecheck();
   // start polling calibration status
   setInterval(() => ltUpdateCalibrationStatus(), 1000);
