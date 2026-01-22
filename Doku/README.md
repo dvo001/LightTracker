@@ -47,6 +47,7 @@ LightTracking/
 ├─ firmware/           # Anchor / Tag Firmware (PlatformIO)
 ├─ CODEX_TASK_*.md     # Implementierungsphasen für Codex
 ├─ PI_INSTALLATION_GUIDE.md
+├─ UBUNTU_SERVER_INSTALLATION_GUIDE.md
 ├─ LIVE_CHECKLIST.md
 ├─ PERFORMANCE_TUNING_GUIDE.md
 ├─ FAILURE_MODES_AND_EFFECTS.md
@@ -67,11 +68,12 @@ LightTracking/
 ## Dokumentation (empfohlen in dieser Reihenfolge)
 1. ARCHITECTURE_OVERVIEW.md
 2. PI_INSTALLATION_GUIDE.md
-3. INSTALL_QUICKSTART.md
-4. OPERATOR_UI_FLOW.md
-5. LIVE_CHECKLIST.md
-6. PERFORMANCE_TUNING_GUIDE.md
-7. FAILURE_MODES_AND_EFFECTS.md
+3. UBUNTU_SERVER_INSTALLATION_GUIDE.md (Ubuntu Server)
+4. INSTALL_QUICKSTART.md
+5. OPERATOR_UI_FLOW.md
+6. LIVE_CHECKLIST.md
+7. PERFORMANCE_TUNING_GUIDE.md
+8. FAILURE_MODES_AND_EFFECTS.md
 
 ---
 
@@ -91,4 +93,3 @@ LightTracking/
 ## Ziel
 LightTracking wurde entwickelt, um **Bewegungslicht präzise, stabil und sicher**
 mit realen Performern zu koppeln – ohne manuelles Nachführen.
-

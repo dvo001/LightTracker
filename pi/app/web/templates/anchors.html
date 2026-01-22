@@ -39,6 +39,26 @@
       Aktuell kannst du Positionen setzen; Anzeige kommt in Phase-2 (Devices/Anchors List).
     </div>
   </div>
+
+  <div class="card">
+    <div class="card-title">Antenna Calibration (Anchor)</div>
+    <div class="muted">
+      Setzt <code>antenna_delay</code> via <code>POST /api/v1/devices/{mac}/apply-settings</code>.
+    </div>
+    <div class="formgrid" style="margin-top:10px;">
+      <label>MAC <span class="req">*</span>
+        <input id="anc_ant_mac" required placeholder="AA:BB:CC:DD:EE:FF" />
+      </label>
+      <label>antenna_delay <span class="req">*</span>
+        <input id="anc_ant_delay" type="number" step="1" placeholder="z.B. 16384" />
+      </label>
+    </div>
+    <div class="row">
+      <button class="btn primary" type="button" onclick="ltApplyAnchorAntennaDelay()">Send</button>
+    </div>
+    <div class="muted" style="margin-top:8px;">Tipp: -1 loescht den gespeicherten Wert.</div>
+    <pre class="pre" id="anc_ant_out"></pre>
+  </div>
 </div>
 
 <div class="card" style="margin-top:15px;">
@@ -73,6 +93,7 @@ document.addEventListener("DOMContentLoaded", () => {
   ltLoadSystemDefaults();
   ltLoadAnchors();
   ltAttachMacFormatter(document.getElementById("anc_mac"));
+  ltAttachMacFormatter(document.getElementById("anc_ant_mac"));
 });
 </script>
 {% endblock %}

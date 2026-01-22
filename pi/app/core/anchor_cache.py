@@ -1,6 +1,7 @@
 import time
 from typing import Dict, Tuple
 from ..db import connect_db
+from .anchor_positions import load_anchor_offsets
 
 class AnchorCache:
     def __init__(self, refresh_ms:int=1000, online_window_ms:int=8000):
@@ -13,7 +14,11 @@ class AnchorCache:
         db = connect_db()
         try:
             rows = db.execute('SELECT mac,x_cm,y_cm,z_cm,updated_at_ms FROM anchor_positions').fetchall()
-            anchors = {r['mac']:(r['x_cm'], r['y_cm'], r['z_cm']) for r in rows}
+            offsets = load_anchor_offsets(db)
+            anchors = {}
+            for r in rows:
+                dx, dy, dz = offsets.get(r["mac"], (0.0, 0.0, 0.0))
+                anchors[r['mac']] = (r['x_cm'] + dx, r['y_cm'] + dy, r['z_cm'] + dz)
             devs = db.execute('SELECT mac, last_seen_at_ms FROM devices').fetchall() if True else []
             last_seen = {r['mac']: r['last_seen_at_ms'] for r in devs}
         finally:

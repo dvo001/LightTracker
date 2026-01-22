@@ -6,6 +6,7 @@ import json
 import time
 from app.core.state_manager import StateManager
 from app.db.persistence import get_persistence
+from app.core.anchor_positions import load_anchor_offsets
 
 router = APIRouter()
 
@@ -60,6 +61,7 @@ def list_anchors():
         pass
     db = connect_db()
     try:
+        offsets = load_anchor_offsets(db)
         try:
             rows = db.execute("SELECT mac, alias FROM anchors WHERE alias IS NOT NULL AND alias != ''").fetchall()
             for r in rows:
@@ -71,27 +73,37 @@ def list_anchors():
         # prefer anchor_positions table if present
         try:
             rows = db.execute('SELECT mac, x_cm, y_cm, z_cm, updated_at_ms FROM anchor_positions').fetchall()
-            anchors = [
-                {
-                    'mac': r['mac'],
-                    'alias': alias_map.get(_normalize_mac(r['mac'])),
-                    'anchor_index': idx_map.get(_normalize_mac(r['mac'])),
-                    'position_cm': {'x': r['x_cm'], 'y': r['y_cm'], 'z': r['z_cm']},
-                    'last_seen_at_ms': r['updated_at_ms']
-                } for r in rows
-            ]
+            anchors = []
+            for r in rows:
+                dx, dy, dz = offsets.get(r["mac"], (0.0, 0.0, 0.0))
+                anchors.append(
+                    {
+                        'mac': r['mac'],
+                        'alias': alias_map.get(_normalize_mac(r['mac'])),
+                        'anchor_index': idx_map.get(_normalize_mac(r['mac'])),
+                        'position_cm': {'x': r['x_cm'] + dx, 'y': r['y_cm'] + dy, 'z': r['z_cm'] + dz},
+                        'position_base_cm': {'x': r['x_cm'], 'y': r['y_cm'], 'z': r['z_cm']},
+                        'offset_cm': {'x': dx, 'y': dy, 'z': dz},
+                        'last_seen_at_ms': r['updated_at_ms']
+                    }
+                )
         except Exception:
             # fallback to anchors table
             rows = db.execute('SELECT mac, alias, pos_x_cm, pos_y_cm, pos_z_cm, last_seen_at_ms FROM anchors').fetchall()
-            anchors = [
-                {
-                    'mac': r['mac'],
-                    'alias': alias_map.get(_normalize_mac(r['mac'])) or (r['alias'] if 'alias' in r.keys() else None),
-                    'anchor_index': idx_map.get(_normalize_mac(r['mac'])),
-                    'position_cm': {'x': r['pos_x_cm'], 'y': r['pos_y_cm'], 'z': r['pos_z_cm']},
-                    'last_seen_at_ms': r['last_seen_at_ms'] if 'last_seen_at_ms' in r.keys() else None
-                } for r in rows
-            ]
+            anchors = []
+            for r in rows:
+                dx, dy, dz = offsets.get(r["mac"], (0.0, 0.0, 0.0))
+                anchors.append(
+                    {
+                        'mac': r['mac'],
+                        'alias': alias_map.get(_normalize_mac(r['mac'])) or (r['alias'] if 'alias' in r.keys() else None),
+                        'anchor_index': idx_map.get(_normalize_mac(r['mac'])),
+                        'position_cm': {'x': r['pos_x_cm'] + dx, 'y': r['pos_y_cm'] + dy, 'z': r['pos_z_cm'] + dz},
+                        'position_base_cm': {'x': r['pos_x_cm'], 'y': r['pos_y_cm'], 'z': r['pos_z_cm']},
+                        'offset_cm': {'x': dx, 'y': dy, 'z': dz},
+                        'last_seen_at_ms': r['last_seen_at_ms'] if 'last_seen_at_ms' in r.keys() else None
+                    }
+                )
     finally:
         db.close()
     return {'anchors': anchors}
@@ -101,6 +113,7 @@ def list_anchors():
 def get_anchor(mac: str):
     db = connect_db()
     try:
+        offsets = load_anchor_offsets(db)
         alias = None
         try:
             dev = get_persistence().get_device(_normalize_mac(mac))
@@ -117,12 +130,28 @@ def get_anchor(mac: str):
                 pass
         row = db.execute('SELECT mac, x_cm, y_cm, z_cm, updated_at_ms FROM anchor_positions WHERE mac=?', (mac,)).fetchone()
         if row:
-            a = {'mac': row['mac'], 'alias': alias, 'position_cm': {'x': row['x_cm'], 'y': row['y_cm'], 'z': row['z_cm']}, 'last_seen_at_ms': row['updated_at_ms']}
+            dx, dy, dz = offsets.get(row["mac"], (0.0, 0.0, 0.0))
+            a = {
+                'mac': row['mac'],
+                'alias': alias,
+                'position_cm': {'x': row['x_cm'] + dx, 'y': row['y_cm'] + dy, 'z': row['z_cm'] + dz},
+                'position_base_cm': {'x': row['x_cm'], 'y': row['y_cm'], 'z': row['z_cm']},
+                'offset_cm': {'x': dx, 'y': dy, 'z': dz},
+                'last_seen_at_ms': row['updated_at_ms']
+            }
         else:
             row = db.execute('SELECT mac, alias, pos_x_cm, pos_y_cm, pos_z_cm, last_seen_at_ms FROM anchors WHERE mac=?', (mac,)).fetchone()
             if not row:
                 raise HTTPException(status_code=404, detail='not found')
-            a = {'mac': row['mac'], 'alias': alias or row.get('alias'), 'position_cm': {'x': row['pos_x_cm'], 'y': row['pos_y_cm'], 'z': row['pos_z_cm']}, 'last_seen_at_ms': row.get('last_seen_at_ms')}
+            dx, dy, dz = offsets.get(row["mac"], (0.0, 0.0, 0.0))
+            a = {
+                'mac': row['mac'],
+                'alias': alias or row.get('alias'),
+                'position_cm': {'x': row['pos_x_cm'] + dx, 'y': row['pos_y_cm'] + dy, 'z': row['pos_z_cm'] + dz},
+                'position_base_cm': {'x': row['pos_x_cm'], 'y': row['pos_y_cm'], 'z': row['pos_z_cm']},
+                'offset_cm': {'x': dx, 'y': dy, 'z': dz},
+                'last_seen_at_ms': row.get('last_seen_at_ms')
+            }
     finally:
         db.close()
     return a

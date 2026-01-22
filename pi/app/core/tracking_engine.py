@@ -3,6 +3,7 @@ import time
 from typing import Any, Callable, Dict, List, Optional
 
 from .range_cache import RangeCache
+from .anchor_positions import load_anchor_positions
 from .trilateration import solve_3d
 
 
@@ -29,8 +30,7 @@ class TrackingEngine:
         from app.db import connect_db
         db = connect_db()
         try:
-            rows = db.execute("SELECT mac,x_cm,y_cm,z_cm FROM anchor_positions").fetchall()
-            return {r["mac"]: (r["x_cm"], r["y_cm"], r["z_cm"]) for r in rows}
+            return load_anchor_positions(db, with_offsets=True)
         finally:
             db.close()
 

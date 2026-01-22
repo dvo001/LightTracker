@@ -57,6 +57,55 @@
     <pre class="pre" id="cal_runs_out"></pre>
   </div>
 </div>
+
+<div class="card" style="margin-top:14px;">
+  <div class="card-title">Venue Calibration (5 points)</div>
+  <div class="muted">
+    Nutzt Tag und duration_ms aus dem Start-Block. Punkte: (0,0,z), (+/-d,0,z), (0,+/-d,z).
+  </div>
+
+  <div class="formgrid" style="margin-top:10px;">
+    <label>grid_cm
+      <select id="cal_point_grid">
+        <option value="100">100</option>
+        <option value="200">200</option>
+      </select>
+    </label>
+    <label>z_cm
+      <input id="cal_point_z" type="number" value="150" min="0" />
+    </label>
+  </div>
+
+  <div class="row" style="margin-top:10px;">
+    <button class="btn primary" onclick="ltCalibrationMeasurePoint('center')">Center</button>
+    <button class="btn" onclick="ltCalibrationMeasurePoint('xp')">+X</button>
+    <button class="btn" onclick="ltCalibrationMeasurePoint('xn')">-X</button>
+    <button class="btn" onclick="ltCalibrationMeasurePoint('yp')">+Y</button>
+    <button class="btn" onclick="ltCalibrationMeasurePoint('yn')">-Y</button>
+  </div>
+
+  <div class="row" style="margin-top:10px;">
+    <button class="btn" onclick="ltCalPointReset()">Reset Session</button>
+    <div class="muted">session_id: <span id="cal_point_session">none</span></div>
+  </div>
+
+  <pre class="pre" id="cal_point_out"></pre>
+</div>
+
+<div class="card" style="margin-top:14px;">
+  <div class="card-title">Venue Calibration Apply</div>
+  <div class="muted">
+    Nutzt die letzten 5 Punkte des Tag-MAC. Berechnet Range-Korrektur pro Anchor und Anchor-Offsets.
+  </div>
+  <div class="row" style="margin-top:10px;">
+    <label style="display:flex; align-items:center; gap:8px;">
+      <input id="cal_solve_apply" type="checkbox" checked />
+      Apply Settings (MQTT + Offsets speichern)
+    </label>
+    <button class="btn primary" onclick="ltCalibrationSolve()">Solve & Apply</button>
+  </div>
+  <pre class="pre" id="cal_solve_out"></pre>
+</div>
 {% endblock %}
 
 {% block scripts %}
@@ -65,6 +114,7 @@ document.addEventListener("DOMContentLoaded", () => {
   ltRefreshFooterState();
   ltCalibrationLoadTags();
   ltCalibrationPrecheck();
+  ltCalPointRender();
   // start polling calibration status
   setInterval(() => ltUpdateCalibrationStatus(), 1000);
 });

@@ -140,18 +140,29 @@ async def _broadcaster():
         await asyncio.sleep(0.2)
         try:
             from .db import connect_db
+            from .core.anchor_positions import load_anchor_offsets
             db = connect_db()
             try:
                 rows = db.execute('SELECT mac,x_cm,y_cm,z_cm,updated_at_ms FROM anchor_positions').fetchall()
+                offsets = load_anchor_offsets(db)
             except Exception:
                 rows = []
+                offsets = {}
             finally:
                 db.close()
 
             events = []
             ts = int(asyncio.get_event_loop().time() * 1000)
             for r in rows:
-                events.append({'type': 'anchor_pos', 'mac': r['mac'], 'position_cm': {'x': r['x_cm'], 'y': r['y_cm'], 'z': r['z_cm']}, 'ts_ms': r['updated_at_ms'] or ts})
+                dx, dy, dz = offsets.get(r["mac"], (0.0, 0.0, 0.0))
+                events.append({
+                    'type': 'anchor_pos',
+                    'mac': r['mac'],
+                    'position_cm': {'x': r['x_cm'] + dx, 'y': r['y_cm'] + dy, 'z': r['z_cm'] + dz},
+                    'position_base_cm': {'x': r['x_cm'], 'y': r['y_cm'], 'z': r['z_cm']},
+                    'offset_cm': {'x': dx, 'y': dy, 'z': dz},
+                    'ts_ms': r['updated_at_ms'] or ts
+                })
 
             te = getattr(app.state, 'tracking_engine', None)
             if te:

@@ -13,6 +13,8 @@ const LT_API = {
 
   calibrationStart: "/api/v1/calibration/start",
   calibrationAbort: "/api/v1/calibration/abort",
+  calibrationPoint: "/api/v1/calibration/point",
+  calibrationSolve: "/api/v1/calibration/solve",
   calibrationRuns: "/api/v1/calibration/runs",
   calibrationRunById: (id) => `/api/v1/calibration/runs/${id}`,
 
@@ -316,17 +318,38 @@ function ltAnchorResetForm(){
 function ltAnchorPrefill(mac, aliasEnc, x, y, z){
   const m = $("anc_mac");
   const a = $("anc_alias");
+  const antMac = $("anc_ant_mac");
   const xEl = $("anc_x");
   const yEl = $("anc_y");
   const zEl = $("anc_z");
   const alias = decodeURIComponent(aliasEnc || "");
   if (m) m.value = ltFormatMacColon(mac || "");
   if (a) a.value = alias;
+  if (antMac) antMac.value = ltFormatMacColon(mac || "");
   if (xEl) xEl.value = String(x ?? 0);
   if (yEl) yEl.value = String(y ?? 0);
   if (zEl) zEl.value = String(z ?? 0);
   ltAnchorSetMacLock(true);
   m?.focus();
+}
+
+async function ltApplyAnchorAntennaDelay(){
+  if (!await ltAssertNotLive("Antenna Delay setzen")) return;
+  const macRaw = ($("anc_ant_mac") ? $("anc_ant_mac").value : "").trim();
+  const mac = ltNormalizeMac(macRaw);
+  const delayRaw = ($("anc_ant_delay") ? $("anc_ant_delay").value : "").trim();
+  const out = $("anc_ant_out");
+  if (!macRaw) { alert("MAC fehlt"); return; }
+  if (!mac) { alert("MAC-Format ungueltig"); return; }
+  if (delayRaw === "") { alert("antenna_delay fehlt"); return; }
+  const delayNum = Number(delayRaw);
+  if (!Number.isFinite(delayNum)) { alert("antenna_delay muss eine Zahl sein"); return; }
+
+  const payload = { antenna_delay: Math.trunc(delayNum) };
+  if (out) out.textContent = "sende…";
+  const r = await ltFetchJson(LT_API.deviceApplySettings(mac), { method: "POST", body: JSON.stringify(payload) });
+  if (out) out.textContent = JSON.stringify((r.json || r), null, 2);
+  if (!r.ok) alert("Senden fehlgeschlagen. Siehe Ausgabe.");
 }
 
 // ---------------- Anchors List ----------------
@@ -352,9 +375,10 @@ async function ltLoadAnchors(){
     const lastRaw = a.last_seen_at_ms;
     const last = lastRaw ? new Date(Number(lastRaw)).toLocaleString() : "";
     const pos = a.position_cm || {};
-    const px = (pos.x === undefined || pos.x === null) ? 0 : pos.x;
-    const py = (pos.y === undefined || pos.y === null) ? 0 : pos.y;
-    const pz = (pos.z === undefined || pos.z === null) ? 0 : pos.z;
+    const base = a.position_base_cm || pos;
+    const px = (base.x === undefined || base.x === null) ? 0 : base.x;
+    const py = (base.y === undefined || base.y === null) ? 0 : base.y;
+    const pz = (base.z === undefined || base.z === null) ? 0 : base.z;
     return `
       <tr>
         <td>${escapeHtml(mac)}</td>
@@ -676,6 +700,73 @@ async function ltCalibrationAbort(){
   if (out) out.textContent = JSON.stringify((r.json || r), null, 2);
 }
 
+const LT_CAL_POINTS = {
+  center: { label: "Center", dx: 0, dy: 0 },
+  xp: { label: "+X", dx: 1, dy: 0 },
+  xn: { label: "-X", dx: -1, dy: 0 },
+  yp: { label: "+Y", dx: 0, dy: 1 },
+  yn: { label: "-Y", dx: 0, dy: -1 },
+};
+
+let ltCalPointSessionId = null;
+let ltCalPointResults = {};
+let ltCalPointBusy = false;
+
+function ltCalPointRender(){
+  const out = $("cal_point_out");
+  const sessionEl = $("cal_point_session");
+  if (sessionEl) sessionEl.textContent = ltCalPointSessionId || "none";
+  if (!out) return;
+  const view = {
+    session_id: ltCalPointSessionId,
+    points: ltCalPointResults,
+  };
+  out.textContent = JSON.stringify(view, null, 2);
+}
+
+function ltCalPointReset(){
+  ltCalPointSessionId = null;
+  ltCalPointResults = {};
+  ltCalPointRender();
+}
+
+async function ltCalibrationMeasurePoint(pointId){
+  if (!await ltAssertNotLive("Venue Calibration")) return;
+  if (ltCalPointBusy) return;
+  const point = LT_CAL_POINTS[pointId];
+  if (!point) return;
+
+  const tagMac = $("cal_tag_mac").value.trim();
+  const duration = Number($("cal_duration").value || 6000);
+  const grid = Number($("cal_point_grid").value || 100);
+  const z = Number($("cal_point_z").value || 0);
+  if (!tagMac) { alert("tag_mac ist Pflicht"); return; }
+
+  const pos = { x: point.dx * grid, y: point.dy * grid, z: z };
+  const payload = {
+    tag_mac: tagMac,
+    duration_ms: duration,
+    point_id: pointId,
+    position_cm: pos,
+    session_id: ltCalPointSessionId,
+    grid_cm: grid,
+    label: point.label,
+  };
+
+  ltCalPointBusy = true;
+  const out = $("cal_point_out");
+  if (out) out.textContent = "measuring…";
+  const r = await ltFetchJson(LT_API.calibrationPoint, { method: "POST", body: JSON.stringify(payload) });
+  if (r.ok && r.json){
+    ltCalPointResults[pointId] = r.json;
+    if (!ltCalPointSessionId && r.json.session_id) ltCalPointSessionId = r.json.session_id;
+  } else {
+    alert("Messung fehlgeschlagen.");
+  }
+  ltCalPointBusy = false;
+  ltCalPointRender();
+}
+
 async function ltCalibrationLoadRuns(){
   const out = $("cal_runs_out");
   if (out) out.textContent = "loading…";
@@ -692,6 +783,19 @@ async function ltCalibrationLoadSelectedRun(){
   if (out) out.textContent = "loading…";
   const r = await ltFetchJson(LT_API.calibrationRunById(id));
   if (out) out.textContent = JSON.stringify((r.json || r), null, 2);
+}
+
+async function ltCalibrationSolve(){
+  if (!await ltAssertNotLive("Venue Calibration Solve")) return;
+  const tagMac = $("cal_tag_mac").value.trim();
+  if (!tagMac) { alert("tag_mac ist Pflicht"); return; }
+  const apply = $("cal_solve_apply") ? $("cal_solve_apply").checked : true;
+  const out = $("cal_solve_out");
+  if (out) out.textContent = "solving…";
+  const payload = { tag_mac: tagMac, apply: apply };
+  const r = await ltFetchJson(LT_API.calibrationSolve, { method: "POST", body: JSON.stringify(payload) });
+  if (out) out.textContent = JSON.stringify((r.json || r), null, 2);
+  if (!r.ok) alert("Solve fehlgeschlagen.");
 }
 
 // ---------------- Live Monitor ----------------
@@ -1364,6 +1468,7 @@ window.ltRefreshDashboard = ltRefreshDashboard;
 window.ltSetAnchorPosition = ltSetAnchorPosition;
 window.ltAnchorPrefill = ltAnchorPrefill;
 window.ltDeleteAnchor = ltDeleteAnchor;
+window.ltApplyAnchorAntennaDelay = ltApplyAnchorAntennaDelay;
 window.ltLoadSystemDefaults = ltLoadSystemDefaults;
 window.ltSaveSystemDefaults = ltSaveSystemDefaults;
 window.ltLoadWifiDefaults = ltLoadSystemDefaults;
@@ -1380,6 +1485,7 @@ window.ltCalibrationStart = ltCalibrationStart;
 window.ltCalibrationAbort = ltCalibrationAbort;
 window.ltCalibrationLoadRuns = ltCalibrationLoadRuns;
 window.ltCalibrationLoadSelectedRun = ltCalibrationLoadSelectedRun;
+window.ltCalibrationSolve = ltCalibrationSolve;
 
 window.ltLiveStart = ltLiveStart;
 window.ltLiveStop = ltLiveStop;
