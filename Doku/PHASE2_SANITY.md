@@ -32,8 +32,14 @@ sudo systemctl enable --now lighttracking.service
 sudo journalctl -u lighttracking -f
 ```
 
-5) DB migration check
+5) If running behind HTTPS (nginx on 443), quick check
 
 ```bash
-sqlite3 /var/lib/lighttracking/lighttracker.db "SELECT id, applied_at_ms FROM schema_migrations ORDER BY id;"
+curl -k https://localhost/api/v1/state
+```
+
+6) DB migration check
+
+```bash
+sqlite3 /opt/lighttracking/pi/app/data/lighttracker.db "SELECT id, applied_at_ms FROM schema_migrations ORDER BY id;"
 ```

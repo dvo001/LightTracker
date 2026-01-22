@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include <vector>
 #include <utility>
+#include <math.h>
 #include "common/device_identity.h"
 #include "common/mqtt_client.h"
 #include "common/json_payloads.h"
@@ -24,6 +25,9 @@ std::vector<std::pair<String, float>> range_buf;
 int last_visible_tags = 0;
 String anchor_mac;
 int uwb_anchor_index = UWB_ANCHOR_INDEX;
+int uwb_antenna_delay = -1;
+float uwb_range_scale = 1.0f;
+float uwb_range_offset_cm = 0.0f;
 constexpr int kUwbUartRx =
 #ifdef UWB_UART_RX
   UWB_UART_RX;
@@ -67,6 +71,60 @@ static void store_anchor_index_to_nvs(int idx) {
   Preferences prefs;
   prefs.begin("lt_cfg", false);
   prefs.putInt("anchor_index", idx);
+  prefs.end();
+}
+
+static int load_antenna_delay_from_nvs() {
+  Preferences prefs;
+  prefs.begin("lt_cfg", true);
+  int delay = prefs.getInt("antenna_delay", -1);
+  prefs.end();
+  return delay;
+}
+
+static void store_antenna_delay_to_nvs(int delay) {
+  Preferences prefs;
+  prefs.begin("lt_cfg", false);
+  if (delay < 0) {
+    prefs.remove("antenna_delay");
+  } else {
+    prefs.putInt("antenna_delay", delay);
+  }
+  prefs.end();
+}
+
+static float load_range_scale_from_nvs() {
+  Preferences prefs;
+  prefs.begin("lt_cfg", true);
+  float scale = prefs.getFloat("range_scale", 1.0f);
+  prefs.end();
+  if (scale <= 0.0f) return 1.0f;
+  return scale;
+}
+
+static float load_range_offset_cm_from_nvs() {
+  Preferences prefs;
+  prefs.begin("lt_cfg", true);
+  float offset = prefs.getFloat("range_offset_cm", 0.0f);
+  prefs.end();
+  return offset;
+}
+
+static void store_range_scale_to_nvs(float scale) {
+  Preferences prefs;
+  prefs.begin("lt_cfg", false);
+  if (scale <= 0.0f) {
+    prefs.remove("range_scale");
+  } else {
+    prefs.putFloat("range_scale", scale);
+  }
+  prefs.end();
+}
+
+static void store_range_offset_cm_to_nvs(float offset) {
+  Preferences prefs;
+  prefs.begin("lt_cfg", false);
+  prefs.putFloat("range_offset_cm", offset);
   prefs.end();
 }
 
@@ -131,6 +189,46 @@ static void apply_tag_map_settings(JsonObjectConst settings) {
 
 static void uwb_send_cmd(const char* cmd, unsigned long wait_ms);
 
+static void apply_antenna_delay_settings(JsonObjectConst settings) {
+  if (!settings.containsKey("antenna_delay")) return;
+  int delay = int(settings["antenna_delay"]);
+  if (delay == uwb_antenna_delay) return;
+  uwb_antenna_delay = delay;
+  store_antenna_delay_to_nvs(delay);
+  Serial.printf("uwb: antenna_delay=%d\n", uwb_antenna_delay);
+  bool pending_reconfig = settings.containsKey("anchor_index") || settings.containsKey("uwb_anchor_index");
+  if (delay < 0 || pending_reconfig) return;
+  if (kUwbUartRx >= 0 && kUwbUartTx >= 0) {
+    char cmd[64];
+    snprintf(cmd, sizeof(cmd), "AT+SETANT=%d", uwb_antenna_delay);
+    uwb_send_cmd(cmd, 200);
+  }
+}
+
+static void apply_range_correction_settings(JsonObjectConst settings) {
+  bool updated = false;
+  if (settings.containsKey("range_scale")) {
+    float scale = settings["range_scale"].as<float>();
+    if (scale <= 0.0f) scale = 1.0f;
+    if (fabsf(scale - uwb_range_scale) > 1e-6f) {
+      uwb_range_scale = scale;
+      store_range_scale_to_nvs(scale);
+      updated = true;
+    }
+  }
+  if (settings.containsKey("range_offset_cm")) {
+    float offset = settings["range_offset_cm"].as<float>();
+    if (fabsf(offset - uwb_range_offset_cm) > 1e-3f) {
+      uwb_range_offset_cm = offset;
+      store_range_offset_cm_to_nvs(offset);
+      updated = true;
+    }
+  }
+  if (updated) {
+    Serial.printf("uwb: range_scale=%.4f range_offset_cm=%.2f\n", uwb_range_scale, uwb_range_offset_cm);
+  }
+}
+
 static void apply_anchor_index_settings(JsonObjectConst settings) {
   if (!settings.containsKey("anchor_index") && !settings.containsKey("uwb_anchor_index")) return;
   int idx = settings.containsKey("anchor_index") ? int(settings["anchor_index"]) : int(settings["uwb_anchor_index"]);
@@ -152,6 +250,10 @@ static void apply_anchor_index_settings(JsonObjectConst settings) {
     uwb_send_cmd("AT+SETRPT=1", 200);
     snprintf(cmd, sizeof(cmd), "AT+SETPAN=%d", UWB_PAN_INDEX);
     uwb_send_cmd(cmd, 200);
+    if (uwb_antenna_delay >= 0) {
+      snprintf(cmd, sizeof(cmd), "AT+SETANT=%d", uwb_antenna_delay);
+      uwb_send_cmd(cmd, 200);
+    }
     uwb_send_cmd("AT+SAVE", 200);
 #if UWB_AT_RESTART
     uwb_send_cmd("AT+RESTART", 200);
@@ -192,6 +294,9 @@ void setup() {
   mqtt.load_config_from_nvs();
   load_tag_map_from_nvs();
   uwb_anchor_index = load_anchor_index_from_nvs();
+  uwb_antenna_delay = load_antenna_delay_from_nvs();
+  uwb_range_scale = load_range_scale_from_nvs();
+  uwb_range_offset_cm = load_range_offset_cm_from_nvs();
   at.set_anchor_index(uwb_anchor_index);
   WiFi.mode(WIFI_STA);
   mqtt.begin();
@@ -207,12 +312,16 @@ void setup() {
     cmdh.handle(payload.c_str(), mqtt);
   };
   cmdh.on_settings = [](JsonObjectConst settings) {
+    apply_antenna_delay_settings(settings);
+    apply_range_correction_settings(settings);
     apply_anchor_index_settings(settings);
     apply_tag_map_settings(settings);
   };
 #ifndef SIM_RANGES
   at.on_range = [](const String& tag_mac, float d_m) {
-    if (range_buf.size() < 32) range_buf.push_back({tag_mac, d_m});
+    float corrected = d_m * uwb_range_scale + (uwb_range_offset_cm / 100.0f);
+    if (corrected < 0.0f) corrected = 0.0f;
+    if (range_buf.size() < 32) range_buf.push_back({tag_mac, corrected});
   };
 #endif
   if (kUwbUartRx >= 0 && kUwbUartTx >= 0){
@@ -230,6 +339,10 @@ void setup() {
     uwb_send_cmd("AT+SETRPT=1", 200);
     snprintf(cmd, sizeof(cmd), "AT+SETPAN=%d", UWB_PAN_INDEX);
     uwb_send_cmd(cmd, 200);
+    if (uwb_antenna_delay >= 0) {
+      snprintf(cmd, sizeof(cmd), "AT+SETANT=%d", uwb_antenna_delay);
+      uwb_send_cmd(cmd, 200);
+    }
     uwb_send_cmd("AT+SAVE", 200);
 #if UWB_AT_RESTART
     uwb_send_cmd("AT+RESTART", 200);

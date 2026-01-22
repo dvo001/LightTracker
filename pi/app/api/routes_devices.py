@@ -32,6 +32,9 @@ class DeviceConfig(BaseModel):
     heartbeat_ms: Optional[int] = None
     alias: Optional[str] = None
     anchor_index: Optional[int] = None
+    antenna_delay: Optional[int] = None
+    range_scale: Optional[float] = None
+    range_offset_cm: Optional[float] = None
 
 
 class DeviceProvision(BaseModel):
@@ -230,6 +233,29 @@ def apply_device_settings(mac: str, body: DeviceConfig, request: Request):
                 idx = _ensure_anchor_index(mac_norm, p)
                 if idx is not None:
                     settings["anchor_index"] = idx
+        except Exception:
+            pass
+    if body.antenna_delay is not None:
+        settings["antenna_delay"] = int(body.antenna_delay)
+        try:
+            p = get_persistence()
+            p.upsert_device_setting(mac_norm, "antenna_delay", str(int(body.antenna_delay)))
+        except Exception:
+            pass
+    if body.range_scale is not None:
+        if body.range_scale <= 0:
+            raise HTTPException(status_code=400, detail="range_scale must be > 0")
+        settings["range_scale"] = float(body.range_scale)
+        try:
+            p = get_persistence()
+            p.upsert_device_setting(mac_norm, "range_scale", str(float(body.range_scale)))
+        except Exception:
+            pass
+    if body.range_offset_cm is not None:
+        settings["range_offset_cm"] = float(body.range_offset_cm)
+        try:
+            p = get_persistence()
+            p.upsert_device_setting(mac_norm, "range_offset_cm", str(float(body.range_offset_cm)))
         except Exception:
             pass
     if not settings:
