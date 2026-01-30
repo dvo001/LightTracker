@@ -298,6 +298,7 @@ def calibration_solve(payload: CalSolve, request: Request):
             raise HTTPException(status_code=404, detail="no calibration runs for tag_mac")
 
         points = {}
+        max_points = max(payload.min_points, 10)
         for r in rows:
             try:
                 params = json.loads(r["params_json"] or "{}")
@@ -321,7 +322,7 @@ def calibration_solve(payload: CalSolve, request: Request):
                 "position_cm": {"x": float(pos.get("x", 0.0)), "y": float(pos.get("y", 0.0)), "z": float(pos.get("z", 0.0))},
                 "summary": summary,
             }
-            if len(points) >= 5:
+            if len(points) >= max_points:
                 break
 
         if len(points) < payload.min_points:

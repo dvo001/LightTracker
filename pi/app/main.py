@@ -7,6 +7,7 @@ import threading
 import asyncio
 import json
 import sys
+import time
 
 from .db.migrations.runner import run_migrations
 from .api import router as api_router
@@ -128,7 +129,8 @@ async def _dmx_loop():
         try:
             eng = getattr(app.state, "dmx_engine", None)
             if eng:
-                eng.tick()
+                # Run DMX work off the event loop to keep API responsive.
+                await asyncio.to_thread(eng.tick)
         except Exception:
             pass
         await asyncio.sleep(1.0 / 30.0)
@@ -136,33 +138,48 @@ async def _dmx_loop():
 
 async def _broadcaster():
     # periodically read anchor_positions and tracking positions and broadcast to connected websockets
+    anchor_events = []
+    last_anchor_refresh_ms = 0
+    anchor_refresh_ms = 1000
     while True:
         await asyncio.sleep(0.2)
         try:
-            from .db import connect_db
-            from .core.anchor_positions import load_anchor_offsets
-            db = connect_db()
-            try:
-                rows = db.execute('SELECT mac,x_cm,y_cm,z_cm,updated_at_ms FROM anchor_positions').fetchall()
-                offsets = load_anchor_offsets(db)
-            except Exception:
-                rows = []
-                offsets = {}
-            finally:
-                db.close()
+            now_ms = int(time.time() * 1000)
+            if now_ms - last_anchor_refresh_ms >= anchor_refresh_ms:
+                def _load_anchor_events():
+                    from .db import connect_db
+                    from .core.anchor_positions import load_anchor_offsets
+                    db = connect_db()
+                    try:
+                        rows = db.execute('SELECT mac,x_cm,y_cm,z_cm,updated_at_ms FROM anchor_positions').fetchall()
+                        offsets = load_anchor_offsets(db)
+                    except Exception:
+                        rows = []
+                        offsets = {}
+                    finally:
+                        db.close()
 
-            events = []
-            ts = int(asyncio.get_event_loop().time() * 1000)
-            for r in rows:
-                dx, dy, dz = offsets.get(r["mac"], (0.0, 0.0, 0.0))
-                events.append({
-                    'type': 'anchor_pos',
-                    'mac': r['mac'],
-                    'position_cm': {'x': r['x_cm'] + dx, 'y': r['y_cm'] + dy, 'z': r['z_cm'] + dz},
-                    'position_base_cm': {'x': r['x_cm'], 'y': r['y_cm'], 'z': r['z_cm']},
-                    'offset_cm': {'x': dx, 'y': dy, 'z': dz},
-                    'ts_ms': r['updated_at_ms'] or ts
-                })
+                    ts_ms = int(time.time() * 1000)
+                    events = []
+                    for r in rows:
+                        dx, dy, dz = offsets.get(r["mac"], (0.0, 0.0, 0.0))
+                        events.append({
+                            'type': 'anchor_pos',
+                            'mac': r['mac'],
+                            'position_cm': {'x': r['x_cm'] + dx, 'y': r['y_cm'] + dy, 'z': r['z_cm'] + dz},
+                            'position_base_cm': {'x': r['x_cm'], 'y': r['y_cm'], 'z': r['z_cm']},
+                            'offset_cm': {'x': dx, 'y': dy, 'z': dz},
+                            'ts_ms': r['updated_at_ms'] or ts_ms
+                        })
+                    return events
+
+                try:
+                    anchor_events = await asyncio.to_thread(_load_anchor_events)
+                    last_anchor_refresh_ms = now_ms
+                except Exception:
+                    await asyncio.sleep(1)
+
+            events = list(anchor_events)
 
             te = getattr(app.state, 'tracking_engine', None)
             if te:

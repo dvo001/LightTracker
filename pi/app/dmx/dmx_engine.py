@@ -1,5 +1,6 @@
 import time
 import json
+import threading
 from typing import Dict, Any, Callable, Optional
 
 from app.db.persistence import get_persistence
@@ -17,6 +18,7 @@ class DmxEngine:
         self._driver_managed = driver is None
         self.state_provider = state_provider or (lambda: get_persistence().get_setting("system.state", "SETUP"))
         self.last_sent: Dict[Any, Dict[str, float]] = {}  # fixture_id or ofl:patch_id -> {"pan_deg":..., "tilt_deg":...}
+        self._state_lock = threading.Lock()
         self.test_target_cm = None
         self.test_until_ms = None
         self._ofl_fixture_cache: Dict[int, Dict[str, Any]] = {}
@@ -31,7 +33,11 @@ class DmxEngine:
         profiles = {pr["profile_key"]: json.loads(pr["profile_json"]) if pr.get("profile_json") else {} for pr in p.list_fixture_profiles()}
         state = self.state_provider()
         now = int(time.time() * 1000)
-        use_test = self.test_target_cm and self.test_until_ms and now < self.test_until_ms
+        with self._state_lock:
+            test_target_cm = self.test_target_cm
+            test_until_ms = self.test_until_ms
+            color_overrides = dict(self._color_overrides)
+        use_test = test_target_cm and test_until_ms and now < test_until_ms
 
         if self._driver_managed:
             self._ensure_driver(p)
@@ -42,7 +48,7 @@ class DmxEngine:
             if pos:
                 target_pos = pos.get("position_cm")
         if use_test:
-            target_pos = self.test_target_cm
+            target_pos = test_target_cm
 
         commands = []
         for fx in fixtures:
@@ -104,7 +110,7 @@ class DmxEngine:
             channel_values = self._ofl_build_channel_values(base_addr, pan_u16, tilt_u16, chan_map)
             if not channel_values:
                 continue
-            color = self._color_overrides.get(patch.get("id"))
+            color = color_overrides.get(patch.get("id"))
             if color:
                 color_map = self._ofl_get_color_channels(patch.get("fixture_id"), patch.get("mode_name"), fixture_obj)
                 color_values = self._ofl_build_color_values(base_addr, color, color_map)
@@ -125,23 +131,27 @@ class DmxEngine:
                     p.append_event("ERROR", "dmx", "send_failed", ref=str(uni), details_json=str(e))
 
     def aim(self, target_cm: Dict[str, Any], duration_ms: int):
-        self.test_target_cm = target_cm
-        self.test_until_ms = int(time.time() * 1000) + duration_ms
+        with self._state_lock:
+            self.test_target_cm = target_cm
+            self.test_until_ms = int(time.time() * 1000) + duration_ms
 
     def stop_test(self):
-        self.test_target_cm = None
-        self.test_until_ms = None
+        with self._state_lock:
+            self.test_target_cm = None
+            self.test_until_ms = None
 
     def set_live_color(self, patch_id: int, r: int, g: int, b: int, dim: int):
-        self._color_overrides[int(patch_id)] = {
-            "r": int(max(0, min(255, r))),
-            "g": int(max(0, min(255, g))),
-            "b": int(max(0, min(255, b))),
-            "dim": int(max(0, min(255, dim))),
-        }
+        with self._state_lock:
+            self._color_overrides[int(patch_id)] = {
+                "r": int(max(0, min(255, r))),
+                "g": int(max(0, min(255, g))),
+                "b": int(max(0, min(255, b))),
+                "dim": int(max(0, min(255, dim))),
+            }
 
     def clear_live_color(self, patch_id: int):
-        self._color_overrides.pop(int(patch_id), None)
+        with self._state_lock:
+            self._color_overrides.pop(int(patch_id), None)
 
     def send_custom_frame(self, universe: int, channel_values: Dict[int, int]):
         p = get_persistence()

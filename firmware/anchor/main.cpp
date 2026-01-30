@@ -8,6 +8,7 @@
 #include "common/cmd_handler.h"
 #include "common/uwb_at_adapter.h"
 #include "common/display.h"
+#include "common/battery.h"
 #include "common/provisioning_espnow.h"
 #include <esp_wifi.h>
 #include <Preferences.h>
@@ -311,6 +312,7 @@ void setup() {
   mqtt.on_cmd = [](const String& topic, const String& payload){
     cmdh.handle(payload.c_str(), mqtt);
   };
+  battery_init();
   cmdh.on_settings = [](JsonObjectConst settings) {
     apply_antenna_delay_settings(settings);
     apply_range_correction_settings(settings);
@@ -435,6 +437,12 @@ void loop() {
   // display update (every ~1s)
   static unsigned long last_disp = 0;
   if (millis() - last_disp > 1000){
+    static float last_bat_v = -1.0f;
+    static unsigned long last_bat_ms = 0;
+    if (millis() - last_bat_ms > 5000) {
+      last_bat_v = battery_read_voltage();
+      last_bat_ms = millis();
+    }
     int rssi = (WiFi.status() == WL_CONNECTED) ? WiFi.RSSI() : -127;
     String alias = mqtt.device_alias.length() ? mqtt.device_alias : String("Anchor");
     bool espnow_ok = prov_is_active();
@@ -443,7 +451,7 @@ void loop() {
       star_on = !star_on;
     }
     if (!espnow_ok) star_on = false;
-    ldisplay.draw(alias, "Anchor", last_visible_tags, WiFi.status() == WL_CONNECTED, rssi, true, espnow_ok, star_on);
+    ldisplay.draw(alias, "Anchor", last_visible_tags, WiFi.status() == WL_CONNECTED, rssi, true, espnow_ok, star_on, last_bat_v);
     last_disp = millis();
   }
 }

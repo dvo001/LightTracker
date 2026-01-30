@@ -17,6 +17,7 @@ public:
   String last_alias = "";
   String last_mode = "";
   int last_rssi = -127;
+  float last_battery_v = -1.0f;
 
   LtDisplay(): oled(128, 64, &Wire, -1) {}
 
@@ -31,13 +32,14 @@ public:
     oled.display();
   }
 
-  void draw(const String& alias, const String& mode, int visible_count, bool wifi_connected, int wifi_rssi, bool show_visible=true, bool show_star=false, bool star_on=true){
+  void draw(const String& alias, const String& mode, int visible_count, bool wifi_connected, int wifi_rssi, bool show_visible=true, bool show_star=false, bool star_on=true, float battery_v=-1.0f){
     if (!ready) return;
     last_draw_ms = millis();
     last_visible = visible_count;
     last_alias = alias;
     last_mode = mode;
     last_rssi = wifi_rssi;
+    last_battery_v = battery_v;
 
     oled.clearDisplay();
 
@@ -58,6 +60,15 @@ public:
       aname = aname.substring(0, 7) + "...";
     }
     oled.println(aname);
+
+    // Battery line (middle, if available)
+    if (battery_v >= 0.0f) {
+      oled.setTextSize(1);
+      oled.setCursor(0, 36);
+      oled.print("Bat: ");
+      oled.print(battery_v, 2);
+      oled.print("V");
+    }
 
     // Bottom row: mode + visible count
     oled.setTextSize(1);

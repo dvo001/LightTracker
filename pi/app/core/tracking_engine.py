@@ -47,20 +47,36 @@ class TrackingEngine:
     async def _tick(self):
         anchors = self._get_anchor_positions()
         now_ms = int(time.time() * 1000)
-        tags = self._tags_seen()
+        tags = set(self._tags_seen())
+        tags.update(self.latest_position.keys())
         for tag_mac in tags:
             samples = self.range_cache.snapshot(tag_mac, max_age_ms=self.stale_timeout_ms)
+            latest_sample_ts = None
+            if samples:
+                latest_sample_ts = max(s.ts_ms for s in samples)
             # build dict anchor->dist_cm
             dist_map = {}
             for s in samples:
                 if s.anchor_mac in anchors:
                     dist_map[s.anchor_mac] = s.d_m * 100.0  # m -> cm
             if len(dist_map) < 4:
-                self._set_state(tag_mac, "STALE" if self._is_recent(tag_mac, now_ms) else "LOST", now_ms, None, anchors_used=[])
+                if latest_sample_ts is not None:
+                    recent = (now_ms - latest_sample_ts) <= self.lost_timeout_ms
+                else:
+                    recent = self._is_recent(tag_mac, now_ms)
+                ts_ms = latest_sample_ts if latest_sample_ts is not None else self.latest_position.get(tag_mac, {}).get("ts_ms")
+                ts_ms = ts_ms if ts_ms is not None else now_ms
+                self._set_state(tag_mac, "STALE" if recent else "LOST", ts_ms, None, anchors_used=[])
                 continue
             res = solve_3d(anchors, dist_map, resid_max_m=self.settings.get("tracking.resid_max_m", 5.0))
             if res.pos_cm is None:
-                self._set_state(tag_mac, "STALE" if self._is_recent(tag_mac, now_ms) else "LOST", now_ms, None, anchors_used=res.anchors_used, reason=res.reason)
+                if latest_sample_ts is not None:
+                    recent = (now_ms - latest_sample_ts) <= self.lost_timeout_ms
+                else:
+                    recent = self._is_recent(tag_mac, now_ms)
+                ts_ms = latest_sample_ts if latest_sample_ts is not None else self.latest_position.get(tag_mac, {}).get("ts_ms")
+                ts_ms = ts_ms if ts_ms is not None else now_ms
+                self._set_state(tag_mac, "STALE" if recent else "LOST", ts_ms, None, anchors_used=res.anchors_used, reason=res.reason)
                 continue
             payload = {
                 "tag_mac": tag_mac,
@@ -78,6 +94,15 @@ class TrackingEngine:
                 except Exception:
                     pass
 
+        # drop long-lost tags to avoid unbounded growth
+        drop_after_ms = int(self.lost_timeout_ms * 2)
+        for tag_mac, payload in list(self.latest_position.items()):
+            last_ts = payload.get("ts_ms")
+            if last_ts is None:
+                continue
+            if (now_ms - last_ts) > drop_after_ms:
+                self.latest_position.pop(tag_mac, None)
+
     def _tags_seen(self) -> List[str]:
         with self.range_cache._lock:
             return list({tag for (tag, _), _ in self.range_cache._samples.items()})
@@ -88,12 +113,12 @@ class TrackingEngine:
             return False
         return (now_ms - last) <= self.lost_timeout_ms
 
-    def _set_state(self, tag_mac: str, state: str, now_ms: int, pos: Optional[dict], anchors_used: List[str], reason: Optional[str] = None):
+    def _set_state(self, tag_mac: str, state: str, ts_ms: int, pos: Optional[dict], anchors_used: List[str], reason: Optional[str] = None):
         payload = self.latest_position.get(tag_mac, {}).copy()
         payload.update({
             "tag_mac": tag_mac,
             "state": state,
-            "ts_ms": now_ms,
+            "ts_ms": ts_ms,
             "anchors_used": anchors_used,
         })
         if pos:

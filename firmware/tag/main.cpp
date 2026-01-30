@@ -4,6 +4,7 @@
 #include "common/json_payloads.h"
 #include "common/cmd_handler.h"
 #include "common/display.h"
+#include "common/battery.h"
 #include "common/provisioning_espnow.h"
 #include <esp_wifi.h>
 
@@ -157,6 +158,7 @@ void setup() {
   mqtt.on_cmd = [](const String& topic, const String& payload){
     cmdh.handle(payload.c_str(), mqtt);
   };
+  battery_init();
   ldisplay.begin();
   if (!mqtt.has_wifi_cfg){
     prov_init();
@@ -239,6 +241,12 @@ void loop() {
   // display update (every ~1s)
   static unsigned long last_disp = 0;
   if (millis() - last_disp > 1000){
+    static float last_bat_v = -1.0f;
+    static unsigned long last_bat_ms = 0;
+    if (millis() - last_bat_ms > 5000) {
+      last_bat_v = battery_read_voltage();
+      last_bat_ms = millis();
+    }
     int rssi = (WiFi.status() == WL_CONNECTED) ? WiFi.RSSI() : -127;
     String alias = mqtt.device_alias.length() ? mqtt.device_alias : String("Tag");
     bool espnow_ok = prov_is_active();
@@ -248,7 +256,7 @@ void loop() {
     }
     if (!espnow_ok) star_on = false;
     // Tag: keine lokale Info über sichtbare Anchors, daher ohne Counter anzeigen
-    ldisplay.draw(alias, "Tag", 0, WiFi.status() == WL_CONNECTED, rssi, false, espnow_ok, star_on);
+    ldisplay.draw(alias, "Tag", 0, WiFi.status() == WL_CONNECTED, rssi, false, espnow_ok, star_on, last_bat_v);
     last_disp = millis();
   }
 }

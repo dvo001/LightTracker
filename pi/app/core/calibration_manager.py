@@ -44,6 +44,7 @@ class CalibrationManager:
             "started_at_ms": ts,
             "duration_ms": duration_ms,
             "samples": [],
+            "last_ts_by_anchor": {},
         }
         return run_id
 
@@ -70,7 +71,13 @@ class CalibrationManager:
         dur = self.active["duration_ms"]
         if now - start < dur:
             snaps = self.range_cache.snapshot(self.active["tag_mac"], max_age_ms=dur)
-            self.active["samples"].extend(snaps)
+            last_ts_by_anchor = self.active.get("last_ts_by_anchor") or {}
+            for s in snaps:
+                prev_ts = last_ts_by_anchor.get(s.anchor_mac)
+                if prev_ts is None or s.ts_ms > prev_ts:
+                    self.active["samples"].append(s)
+                    last_ts_by_anchor[s.anchor_mac] = s.ts_ms
+            self.active["last_ts_by_anchor"] = last_ts_by_anchor
             self.active["progress"] = {"samples": len(self.active["samples"]), "duration_ms": now - start}
             return
         # finish
