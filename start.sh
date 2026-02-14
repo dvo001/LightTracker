@@ -3,15 +3,17 @@ set -euo pipefail
 
 cd "$(dirname "$0")"
 
-# activate venv
-if [ -f ".venv/bin/activate" ]; then
-  # POSIX venv
-  source .venv/bin/activate
-elif [ -f ".venv/Scripts/activate" ]; then
-  # Windows Git-Bash / WSL path
-  source .venv/Scripts/activate
+# Resolve venv python directly to avoid stale absolute paths inside activate scripts.
+if [ -x ".venv/bin/python" ]; then
+  VENV_PY=".venv/bin/python"
+elif [ -x ".venv/Scripts/python.exe" ]; then
+  VENV_PY=".venv/Scripts/python.exe"
+elif [ -x ".venv/Scripts/python" ]; then
+  VENV_PY=".venv/Scripts/python"
 else
-  echo ".venv not found. Create it first: python3 -m venv .venv && source .venv/bin/activate"
+  echo ".venv python not found. Create it first:"
+  echo "  python3 -m venv .venv"
+  echo "  .venv/bin/pip install -r pi/requirements.txt"
   exit 1
 fi
 
@@ -32,5 +34,12 @@ mkdir -p "$db_dir"
 HOST="${HOST:-0.0.0.0}"
 PORT="${PORT:-8000}"
 
+# Check runtime dependency early for clearer errors.
+if ! "$VENV_PY" -c "import uvicorn" >/dev/null 2>&1; then
+  echo "uvicorn is missing in .venv. Install dependencies:"
+  echo "  $VENV_PY -m pip install -r pi/requirements.txt"
+  exit 1
+fi
+
 echo "Starting LightTracker API on $HOST:$PORT (DB=$LT_DB_PATH)..."
-exec uvicorn app.main:app --host "$HOST" --port "$PORT"
+exec "$VENV_PY" -m uvicorn app.main:app --host "$HOST" --port "$PORT"
