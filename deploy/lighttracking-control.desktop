@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=LightTracking Control
+Comment=Start/Stop/Restart des LightTracking Service
+Exec=/usr/local/bin/lighttracking-control
+Icon=system-run
+Terminal=false
+Categories=Utility;System;
+StartupNotify=true

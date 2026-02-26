@@ -1420,6 +1420,8 @@ async function ltLoadDmxConfig(){
 
   const modeEl = $("dmx_mode");
   const uartEl = $("dmx_uart_device");
+  const bridgePortEl = $("dmx_bridge_port");
+  const bridgeBaudEl = $("dmx_bridge_baud");
   const tgtEl = $("artnet_target");
   const portEl = $("artnet_port");
   const uniEl = $("artnet_universe");
@@ -1434,6 +1436,8 @@ async function ltLoadDmxConfig(){
   const cfg = r.json.config || {};
   if (modeEl) modeEl.value = cfg.mode || "uart";
   if (uartEl) uartEl.value = cfg.uart_device || "/dev/serial0";
+  if (bridgePortEl) bridgePortEl.value = cfg.bridge_port || "/dev/ttyUSB0";
+  if (bridgeBaudEl) bridgeBaudEl.value = nz(cfg.bridge_baud, 115200);
   if (tgtEl) tgtEl.value = cfg.artnet_target || "255.255.255.255";
   if (portEl) portEl.value = nz(cfg.artnet_port, 6454);
   if (uniEl) uniEl.value = nz(cfg.artnet_universe, 0);
@@ -1452,6 +1456,8 @@ async function ltSaveDmxConfig(){
   const payload = {
     mode: $("dmx_mode") ? $("dmx_mode").value || "uart" : "uart",
     uart_device: $("dmx_uart_device") ? $("dmx_uart_device").value || undefined : undefined,
+    bridge_port: $("dmx_bridge_port") ? $("dmx_bridge_port").value || undefined : undefined,
+    bridge_baud: asNumberOrNull($("dmx_bridge_baud") ? $("dmx_bridge_baud").value : undefined, 115200),
     artnet_target: $("artnet_target") ? $("artnet_target").value || undefined : undefined,
     artnet_port: asNumberOrNull($("artnet_port") ? $("artnet_port").value : undefined, 6454),
     artnet_universe: asNumberOrNull($("artnet_universe") ? $("artnet_universe").value : undefined, 0),

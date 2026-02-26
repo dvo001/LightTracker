@@ -28,17 +28,24 @@
 </div>
 
 <div class="card" style="margin-top:14px;">
-  <div class="card-title">DMX Ausgabe / Artnet</div>
+  <div class="card-title">DMX Ausgabe / Bridge / Artnet</div>
   <div class="formgrid" style="margin-top:8px;">
     <label>Modus
       <select id="dmx_mode">
         <option value="uart" {{ 'selected' if dmx_prefill and dmx_prefill.get('mode') == 'uart' else '' }}>UART / RS485 (DMX512)</option>
+        <option value="bridge" {{ 'selected' if dmx_prefill and dmx_prefill.get('mode') == 'bridge' else '' }}>Bridge USB -> ESP GPIO17/18 (DMX512)</option>
         <option value="artnet" {{ 'selected' if dmx_prefill and dmx_prefill.get('mode') == 'artnet' else '' }}>Artnet (UDP)</option>
         <option value="off" {{ 'selected' if dmx_prefill and dmx_prefill.get('mode') == 'off' else '' }}>Aus</option>
       </select>
     </label>
     <label>UART Device
       <input id="dmx_uart_device" placeholder="/dev/serial0" value="{{ dmx_prefill.get('uart_device','') if dmx_prefill }}" />
+    </label>
+    <label>Bridge Serial Port
+      <input id="dmx_bridge_port" placeholder="/dev/ttyUSB0" value="{{ dmx_prefill.get('bridge_port','') if dmx_prefill }}" />
+    </label>
+    <label>Bridge Serial Baud
+      <input id="dmx_bridge_baud" type="number" min="9600" max="3000000" placeholder="115200" value="{{ dmx_prefill.get('bridge_baud','') if dmx_prefill }}" />
     </label>
     <label>Artnet Target IP
       <input id="artnet_target" placeholder="255.255.255.255" value="{{ dmx_prefill.get('artnet_target','') if dmx_prefill }}" />
@@ -54,7 +61,7 @@
     <button class="btn" onclick="window.ltLoadDmxConfig()">Reload</button>
     <button class="btn primary" onclick="window.ltSaveDmxConfig()">Speichern</button>
   </div>
-  <div class="muted" style="margin-top:8px;">Artnet sendet nur aktiv bei LIVE/Test und nutzt Fixture-Universes. UART bleibt Standard falls keine Settings gesetzt sind.</div>
+  <div class="muted" style="margin-top:8px;">Bridge-Modus sendet DMX per USB an die ESP-Bridge (GPIO17/18). Artnet sendet per UDP. UART bleibt Standard falls keine Settings gesetzt sind.</div>
   <pre id="dmx_cfg_out" class="pre"></pre>
 </div>
 

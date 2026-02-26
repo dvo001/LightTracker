@@ -5,12 +5,14 @@
 #include <esp_err.h>
 
 static EspNowRecvHandler g_handler = nullptr;
+static bool g_espnow_ready = false;
 static void _on_recv(const uint8_t *mac, const uint8_t *incomingData, int len){
   if (g_handler) g_handler(mac, incomingData, len);
 }
 
 void espnow_init_bridge(EspNowRecvHandler h){
   g_handler = h;
+  g_espnow_ready = false;
   WiFi.mode(WIFI_STA);
   esp_wifi_set_channel(6, WIFI_SECOND_CHAN_NONE);
   if (esp_now_init() != ESP_OK){
@@ -18,6 +20,11 @@ void espnow_init_bridge(EspNowRecvHandler h){
     return;
   }
   esp_now_register_recv_cb(_on_recv);
+  g_espnow_ready = true;
+}
+
+bool espnow_is_ready(){
+  return g_espnow_ready;
 }
 
 bool espnow_send_frame(const uint8_t peer_mac[6], const uint8_t* data, size_t len){

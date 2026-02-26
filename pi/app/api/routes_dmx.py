@@ -32,8 +32,10 @@ def dmx_stop(request: Request):
 
 
 class DmxConfig(BaseModel):
-    mode: str = Field("uart", description="uart | artnet | off")
+    mode: str = Field("uart", description="uart | bridge | artnet | off")
     uart_device: str | None = Field(None, description="e.g. /dev/serial0")
+    bridge_port: str | None = Field(None, description="e.g. /dev/ttyUSB0")
+    bridge_baud: int | None = Field(None, ge=9600, le=3000000)
     artnet_target: str | None = Field(None, description="IPv4 target or broadcast")
     artnet_port: int | None = Field(None, ge=1, le=65535)
     artnet_universe: int | None = Field(None, ge=0, le=32767)
@@ -56,6 +58,8 @@ def _load_dmx_config():
     return {
         "mode": mode,
         "uart_device": p.get_setting("dmx.uart_device", "/dev/serial0") or "/dev/serial0",
+        "bridge_port": p.get_setting("dmx.bridge_port", "/dev/ttyUSB0") or "/dev/ttyUSB0",
+        "bridge_baud": _as_int(p.get_setting("dmx.bridge_baud", 115200), 115200),
         "artnet_target": p.get_setting("artnet.target_ip", "255.255.255.255") or "255.255.255.255",
         "artnet_port": _as_int(p.get_setting("artnet.port", 6454), 6454),
         "artnet_universe": _as_int(p.get_setting("artnet.universe", 0), 0),
@@ -75,7 +79,7 @@ def put_dmx_config(body: DmxConfig):
         raise HTTPException(status_code=409, detail={"code": "STATE_BLOCKED", "message": "Cannot change settings while LIVE"})
 
     mode = body.mode.lower()
-    if mode not in ("uart", "artnet", "off"):
+    if mode not in ("uart", "bridge", "artnet", "off"):
         raise HTTPException(status_code=400, detail={"code": "INVALID_MODE", "message": f"Unsupported mode '{mode}'"})
 
     p.upsert_setting("dmx.output_mode", mode)
@@ -83,6 +87,11 @@ def put_dmx_config(body: DmxConfig):
     if mode == "uart":
         if body.uart_device:
             p.upsert_setting("dmx.uart_device", body.uart_device)
+    elif mode == "bridge":
+        if body.bridge_port:
+            p.upsert_setting("dmx.bridge_port", body.bridge_port)
+        if body.bridge_baud is not None:
+            p.upsert_setting("dmx.bridge_baud", str(body.bridge_baud))
     elif mode == "artnet":
         if body.artnet_target:
             p.upsert_setting("artnet.target_ip", body.artnet_target)

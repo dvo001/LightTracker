@@ -47,6 +47,10 @@ ls -l /dev/serial0
 Provisioning nutzt die Settings:
 - `provision.bridge_port`
 - `provision.bridge_baud`
+- `provision.bridge_gpio_enabled`
+- `provision.bridge_reset_pin`
+- `provision.bridge_boot_pin`
+- `provision.bridge_auto_reset`
 
 Per API setzen:
 
@@ -58,6 +62,18 @@ curl -X PUT http://localhost:8000/api/v1/settings \
 curl -X PUT http://localhost:8000/api/v1/settings \
   -H 'Content-Type: application/json' \
   -d '{"key":"provision.bridge_baud","value":"115200"}'
+
+curl -X PUT http://localhost:8000/api/v1/settings \
+  -H 'Content-Type: application/json' \
+  -d '{"key":"provision.bridge_gpio_enabled","value":"1"}'
+
+curl -X PUT http://localhost:8000/api/v1/settings \
+  -H 'Content-Type: application/json' \
+  -d '{"key":"provision.bridge_reset_pin","value":"17"}'
+
+curl -X PUT http://localhost:8000/api/v1/settings \
+  -H 'Content-Type: application/json' \
+  -d '{"key":"provision.bridge_boot_pin","value":"27"}'
 ```
 
 ## 4) Kurzer Bridge-Test
@@ -92,4 +108,3 @@ client.close()
 - `bridge timeout`: TX/RX vertauscht, kein GND, falscher Baud
 - `open failed`: User hat keine Rechte auf UART-Device
 - Kein `/dev/serial0`: Serial in `raspi-config` nicht korrekt gesetzt
-

@@ -1,6 +1,7 @@
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 from typing import Optional
+import os
 import re
 
 from app.db.persistence import get_persistence
@@ -77,6 +78,43 @@ def _normalize_tag_id(tag_id: Optional[str]) -> str:
     if tid < 0 or tid > 7:
         raise HTTPException(status_code=400, detail="tag_id out of range (0-7)")
     return f"T{tid}"
+
+
+def _parse_bool_setting(raw, default=False) -> bool:
+    if raw is None:
+        return bool(default)
+    if isinstance(raw, bool):
+        return raw
+    val = str(raw).strip().lower()
+    if val in {"1", "true", "yes", "on"}:
+        return True
+    if val in {"0", "false", "no", "off", ""}:
+        return False
+    return bool(default)
+
+
+def _parse_optional_pin_setting(raw, default=None):
+    if raw is None:
+        return default
+    text = str(raw).strip()
+    if text == "":
+        return default
+    if text.lower() in {"none", "null", "off", "disabled"}:
+        return None
+    try:
+        pin = int(text)
+    except Exception:
+        return default
+    if pin < 0:
+        return None
+    return pin
+
+
+def _parse_int_setting(raw, default):
+    try:
+        return int(raw)
+    except Exception:
+        return int(default)
 
 
 def _collect_anchor_macs() -> set:
@@ -292,9 +330,42 @@ def provision_device(mac: str, body: DeviceProvision, request: Request):
         except Exception:
             pass
 
-    bridge_port = p.get_setting("provision.bridge_port", "/dev/ttyUSB0") or "/dev/ttyUSB0"
-    bridge_baud = int(p.get_setting("provision.bridge_baud", 115200) or 115200)
+    bridge_port = (p.get_setting("provision.bridge_port", "") or "").strip()
+    if not bridge_port:
+        bridge_port = "/dev/serial0" if os.path.exists("/dev/serial0") else "/dev/ttyUSB0"
+    bridge_baud = _parse_int_setting(p.get_setting("provision.bridge_baud", 115200) or 115200, 115200)
     token = p.get_setting("provision.token", "changeme") or "changeme"
+
+    raw_gpio_enabled = p.get_setting("provision.bridge_gpio_enabled", "")
+    if str(raw_gpio_enabled).strip() == "":
+        bridge_gpio_enabled = bridge_port == "/dev/serial0"
+    else:
+        bridge_gpio_enabled = _parse_bool_setting(raw_gpio_enabled, default=False)
+    bridge_reset_pin = None
+    bridge_boot_pin = None
+    bridge_auto_reset = False
+    bridge_reset_active_low = True
+    bridge_boot_active_low = True
+    if bridge_gpio_enabled:
+        bridge_reset_pin = _parse_optional_pin_setting(
+            p.get_setting("provision.bridge_reset_pin", 17 if bridge_port == "/dev/serial0" else None),
+            default=17 if bridge_port == "/dev/serial0" else None,
+        )
+        bridge_boot_pin = _parse_optional_pin_setting(
+            p.get_setting("provision.bridge_boot_pin", 27 if bridge_port == "/dev/serial0" else None),
+            default=27 if bridge_port == "/dev/serial0" else None,
+        )
+        bridge_auto_reset = _parse_bool_setting(
+            p.get_setting("provision.bridge_auto_reset", "1" if bridge_port == "/dev/serial0" else "0"),
+            default=(bridge_port == "/dev/serial0"),
+        )
+        bridge_reset_active_low = _parse_bool_setting(
+            p.get_setting("provision.bridge_reset_active_low", "1"), default=True
+        )
+        bridge_boot_active_low = _parse_bool_setting(
+            p.get_setting("provision.bridge_boot_active_low", "1"), default=True
+        )
+
     payload = {
         "op": "provision_write",
         "device_id": _format_mac_colon(mac_norm),
@@ -315,9 +386,36 @@ def provision_device(mac: str, body: DeviceProvision, request: Request):
         steps += 2
     timeout_s = max(5.0, (timeout_ms / 1000.0) * steps + 2.0)
     try:
-        resp = call_bridge(bridge_port, bridge_baud, payload, timeout_s=timeout_s)
+        resp = call_bridge(
+            bridge_port,
+            bridge_baud,
+            payload,
+            timeout_s=timeout_s,
+            reset_pin=bridge_reset_pin,
+            boot_pin=bridge_boot_pin,
+            reset_active_low=bridge_reset_active_low,
+            boot_active_low=bridge_boot_active_low,
+            auto_reset=bridge_auto_reset,
+        )
     except BridgeError as e:
-        raise HTTPException(status_code=503, detail=str(e))
+        # Graceful fallback when GPIO pin control is configured but backend is missing.
+        msg = str(e).lower()
+        can_retry_without_gpio = (
+            (bridge_reset_pin is not None or bridge_boot_pin is not None or bridge_auto_reset)
+            and (
+                "no backend found" in msg
+                or "gpio bridge support unavailable" in msg
+                or "not importable" in msg
+                or "module 'provision_bridge_pi_gpio" in msg
+            )
+        )
+        if can_retry_without_gpio:
+            try:
+                resp = call_bridge(bridge_port, bridge_baud, payload, timeout_s=timeout_s)
+            except BridgeError as e2:
+                raise HTTPException(status_code=503, detail=str(e2))
+        else:
+            raise HTTPException(status_code=503, detail=str(e))
     if not resp:
         raise HTTPException(status_code=504, detail="bridge timeout")
     if resp.get("status") == "error":

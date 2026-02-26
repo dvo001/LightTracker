@@ -8,6 +8,7 @@ from .mapping import compute_pan_tilt, limit
 from .frame_builder import build_frame, deg_to_u16, u16_to_coarse_fine
 from .uart_rs485_driver import UartRs485Driver
 from .artnet_driver import ArtnetDriver
+from .bridge_uart_driver import BridgeUartDmxDriver
 
 
 class DmxEngine:
@@ -25,6 +26,16 @@ class DmxEngine:
         self._ofl_channel_cache: Dict[tuple, Dict[str, Optional[int]]] = {}
         self._ofl_color_cache: Dict[tuple, Dict[str, Optional[int]]] = {}
         self._color_overrides: Dict[int, Dict[str, int]] = {}
+
+    def _replace_driver(self, new_driver, sig):
+        old = self.driver
+        if old is not None and old is not new_driver and hasattr(old, "close"):
+            try:
+                old.close()
+            except Exception:
+                pass
+        self.driver = new_driver
+        self._driver_sig = sig
 
     def tick(self):
         p = get_persistence()
@@ -179,8 +190,7 @@ class DmxEngine:
 
         mode = (persistence.get_setting("dmx.output_mode", "uart") or "uart").lower()
         if mode == "off":
-            self.driver = None
-            self._driver_sig = ("off",)
+            self._replace_driver(None, ("off",))
             return
 
         if mode == "artnet":
@@ -189,16 +199,25 @@ class DmxEngine:
             universe = _as_int(persistence.get_setting("artnet.universe", 0), 0)
             sig = ("artnet", target, port, universe)
             if sig != self._driver_sig:
-                self.driver = ArtnetDriver(target_ip=target, port=port, default_universe=universe)
-                self._driver_sig = sig
+                self._replace_driver(
+                    ArtnetDriver(target_ip=target, port=port, default_universe=universe),
+                    sig,
+                )
+            return
+
+        if mode == "bridge":
+            port = persistence.get_setting("dmx.bridge_port", "/dev/ttyUSB0") or "/dev/ttyUSB0"
+            baud = _as_int(persistence.get_setting("dmx.bridge_baud", 115200), 115200)
+            sig = ("bridge", port, baud)
+            if sig != self._driver_sig:
+                self._replace_driver(BridgeUartDmxDriver(port=port, baud=baud), sig)
             return
 
         # default to UART RS485
         device = persistence.get_setting("dmx.uart_device", "/dev/serial0") or "/dev/serial0"
         sig = ("uart", device)
         if sig != self._driver_sig:
-            self.driver = UartRs485Driver(device=device)
-            self._driver_sig = sig
+            self._replace_driver(UartRs485Driver(device=device), sig)
 
     def _build_frames_by_universe(self, commands, profiles):
         universes = {}

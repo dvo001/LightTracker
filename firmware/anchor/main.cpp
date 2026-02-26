@@ -47,6 +47,12 @@ constexpr int kUwbUartBaud =
 #else
   115200;
 #endif
+constexpr int kUwbResetPin =
+#ifdef UWB_RESET_PIN
+  UWB_RESET_PIN;
+#else
+  16;
+#endif
 #ifndef UWB_TAG_COUNT
 #define UWB_TAG_COUNT 64
 #endif
@@ -283,6 +289,40 @@ static void uwb_send_cmd(const char* cmd, unsigned long wait_ms = 80) {
   }
 }
 
+static bool uwb_probe(unsigned long timeout_ms = 600, int retries = 3) {
+  for (int attempt = 1; attempt <= retries; attempt++) {
+    while (Serial1.available()) (void)Serial1.read();
+    Serial1.println("AT");
+    unsigned long start = millis();
+    String line;
+    while (millis() - start < timeout_ms) {
+      while (Serial1.available()) {
+        char c = (char)Serial1.read();
+        if (c == '\r') continue;
+        if (c == '\n') {
+          line.trim();
+          if (line.length()) {
+            Serial.printf("uwb: probe ok (try %d): %s\n", attempt, line.c_str());
+            return true;
+          }
+          line = "";
+        } else {
+          line += c;
+        }
+      }
+      delay(1);
+    }
+    line.trim();
+    if (line.length()) {
+      Serial.printf("uwb: probe ok (try %d): %s\n", attempt, line.c_str());
+      return true;
+    }
+    Serial.printf("uwb: probe failed (try %d/%d)\n", attempt, retries);
+    delay(50);
+  }
+  return false;
+}
+
 void setup() {
   Serial.begin(115200);
   delay(100);
@@ -327,9 +367,18 @@ void setup() {
   };
 #endif
   if (kUwbUartRx >= 0 && kUwbUartTx >= 0){
+    if (kUwbResetPin >= 0) {
+      pinMode(kUwbResetPin, OUTPUT);
+      digitalWrite(kUwbResetPin, HIGH);
+      delay(20);
+      Serial.printf("uwb: reset pin=%d -> HIGH\n", kUwbResetPin);
+    }
     Serial1.begin(kUwbUartBaud, SERIAL_8N1, kUwbUartRx, kUwbUartTx);
     at.begin(Serial1);
     Serial.printf("uwb: uart1 rx=%d tx=%d baud=%d\n", kUwbUartRx, kUwbUartTx, kUwbUartBaud);
+    if (!uwb_probe()) {
+      Serial.println("uwb: no UART response (check HW-519 reset/pins/baud)");
+    }
 #if UWB_AT_CONFIG
     Serial.printf("uwb: config anchor_index=%d tag_count=%d\n", uwb_anchor_index, UWB_TAG_COUNT);
     char cmd[64];
